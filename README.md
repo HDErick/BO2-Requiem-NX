@@ -8,3 +8,6 @@ Nintendo Switch port of Black Ops 2 (Requiem Project)
 - [Valve](https://github.com/femboyvalve) For the Black Ops 2 Decompilation project used as a base
 - MestreTM. For fixing most of the bugs in the Decompilation project and adding more features.
 - TODO
+
+# DISCORD SERVER for updates:
+https://discord.gg/PvyZuq5Yhp
