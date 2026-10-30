@@ -3,6 +3,8 @@ Requiem Project: A port of the Ghidra decompilation of Black Ops II's PC executa
 
 Currently limited to Zombies and Multiplayer. Campaign needs to be fully decompiled to be included here.
 
+Goal of the project is to have crossplay online servers with most devices
+
 # Source Code release date:
 - Planned Early November 2026, after the initial beta testing.
   
