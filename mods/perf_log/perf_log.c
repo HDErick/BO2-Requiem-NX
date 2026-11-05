@@ -7,7 +7,9 @@
  * também geram uma linha própria (no máximo 4 por janela).
  *
  * O código é independente de posição (-mcmodel=tiny): o patcher copia o blob para
- * qualquer endereço e preenche a tabela `perf_tbl` com os endereços desta versão.
+ * qualquer endereço e preenche a tabela `perf_tbl` com os VAs desta versão. O host
+ * carrega o guest (PIE) com deslocamento, então os VAs da tabela são corrigidos em
+ * tempo de execução pela diferença entre o endereço real da tabela e `self`.
  * Os ponteiros do guest são de 32 bits, mas o código é LP64: endereços abaixo de 4 GB
  * em registradores x funcionam igual.
  */
@@ -24,7 +26,7 @@ struct perf_tbl {
     u32 state;       /* 64 bytes de .bss livres */
     u32 h_vsync;     /* hash de r_vsync */
     u32 h_maxfps;    /* hash de com_maxfps */
-    u32 pad;
+    u32 self;        /* VA da própria tabela no ELF */
 };
 
 struct perf_state {
@@ -42,8 +44,10 @@ struct perf_state {
 __attribute__((section(".text.tbl"), used)) volatile struct perf_tbl perf_tbl;
 
 #define T ((const volatile struct perf_tbl *)&perf_tbl)
-#define S ((volatile struct perf_state *)(uintptr_t)T->state)
-#define FN(type, field) ((type)(uintptr_t)T->field)
+/* deslocamento de carga do guest: endereço real da tabela menos o VA gravado pelo patcher */
+#define BASE ((u32)((uintptr_t)&perf_tbl - T->self))
+#define S ((volatile struct perf_state *)(uintptr_t)(u32)(T->state + BASE))
+#define FN(type, field) ((type)(uintptr_t)(u32)(T->field + BASE))
 
 typedef char *(*va_fn)(const char *, ...);
 typedef void (*log_fn)(const char *);

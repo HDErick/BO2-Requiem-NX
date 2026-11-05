@@ -168,7 +168,7 @@ def main():
         raise SystemExit("sem espaço no fim do .bss")
 
     struct.pack_into("<8I", blob, 0, va, nx_log, callee, dvar_find, state,
-                     djb2("r_vsync"), djb2("com_maxfps"), 0)
+                     djb2("r_vsync"), djb2("com_maxfps"), cave)
     nro[raw:raw + len(blob)] = blob
     struct.pack_into("<II", nro, ph_x + 16, end - x_va, end - x_va)
     struct.pack_into("<I", nro, ph_rw + 20, state + STATE_SIZE - rw_va)
