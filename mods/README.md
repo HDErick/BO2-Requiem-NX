@@ -16,14 +16,30 @@ Liga o puxão da mira ao apertar ZL, o lock-on (a mira acompanha o alvo enquanto
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` libera bots em Gun Game, One in the Chamber, Sticks & Stones e Sharpshooter. O botão "Setup Bots" continua desativado nesses modos: configure quantidade e dificuldade num modo normal antes de trocar. Se a quantidade estiver em 0, entram 5 bots (`party_bots_default_count()`).
 
-## Tela inicial (t6game.nro)
+## Launcher novo com configurações (t6game.nro)
 
 ```
 pip install pillow
-python3 patch_launcher.py /caminho/para/t6game.nro
+launcher/build.sh /caminho/para/t6game.nro.original t6game.nro
 ```
 
-Troca o fundo e os itens do launcher por um layout novo (título, menu em PT-BR, dicas de controle) gerado a partir do `launcherBG.png` original, desce o menu e move o botão de atualização para o canto inferior direito ("VERIFICAR UPDATES"). Usa as fontes DIN Condensed Bold e Avenir Next Condensed do macOS; em outro sistema, aponte `LAUNCHER_TITLE_FONT` e `LAUNCHER_TEXT_FONT` para arquivos `.ttf`.
+Substitui o launcher do Requiem por um próprio (libnx, `launcher/source`), com o mesmo visual do fundo original e as opções Multijogador, Zumbis, Configurações e Atualizações. Compila no container `devkitpro/devkita64` (docker). Os assets (fundo, ícone, fontes) são gerados por `launcher/make_assets.py` a partir do NRO original e das fontes DIN Condensed Bold / Avenir Next Condensed do macOS; em outro sistema, use `LAUNCHER_TITLE_FONT`, `LAUNCHER_TEXT_FONT` e os índices das faces.
+
+No SD, renomeie o launcher original para `t6game_orig.nro`: o item **Atualizações** abre ele, que é quem busca e instala versões novas (e pode trocar o `t6game.nro` de volta pelo oficial).
+
+Em **Configurações**:
+
+| Opção | Onde grava |
+|---|---|
+| Gráfico de desempenho (HUD do DXVK) | `dxvk-sarek.conf` (`dxvk.hud`) |
+| Contador de FPS do jogo | `cg_drawFPS` em `players/config_mp.cfg` e `config_zm.cfg` |
+| V-Sync | `r_vsync` |
+| FPS máximo (30/60) | `com_maxfps` |
+| Quadros adiantados (1-3) | `dxvk-sarek.conf` (`dxgi/d3d11.maxFrameLatency`) |
+| Campo de visão (65-80) | `cg_fov_default` |
+| Bots nos modos Party | `return N;` de `party_bots_default_count()` em `scripts/mp/party_bots.gsc` |
+
+Com o HUD desligado e 1 quadro adiantado, o `dxvk-sarek.conf` é apagado: sem ele o port já força frame latency 1. Com o arquivo presente, o port deixa de forçar, por isso o launcher sempre grava a latência junto.
 
 ## Contador de FPS com frametime
 
