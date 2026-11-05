@@ -17,9 +17,9 @@ Tudo é feito dentro do t6mp_guest.elf embutido no romfs (mesmo tamanho).
 Uso: python3 patch_mp_aimassist.py caminho/para/t6mp.nro [saida.nro]
 Sem [saida.nro], grava por cima e deixa um .bak do original.
 """
-import shutil
-import struct
 import sys
+
+from nro_guest import Guest, adrp_target, bl_target, romfs_file, write_nro
 
 GUEST = "t6mp_guest.elf"
 NOP = 0xD503201F
@@ -30,65 +30,6 @@ LOCKON = "aim_lockon_enabled"
 RANGE_SIG = {0: 0xBD45705F, 3: 0x1E3F0800, 5: 0x1E2023E0, 6: 0x54000121, 32: 0x52A8B000, 33: 0x1E270000}
 RANGE_CONST_LOAD = (4, 0xBD40001F, 0x1E2703FF)  # ldr s31, [x0]  ->  fmov s31, wzr (compara com 0.0)
 RANGE_SKIP = (7, 0x90000000, 0x14000019)        # adrp x0, ...   ->  b +0x64 (direto para o 4096.0)
-
-
-def romfs_file(nro, name):
-    if nro[0x10:0x14] != b"NRO0":
-        raise SystemExit("não é um NRO")
-    aset = struct.unpack_from("<I", nro, 0x18)[0]
-    if nro[aset:aset + 4] != b"ASET":
-        raise SystemExit("NRO sem seção ASET/romfs")
-    rom_off = struct.unpack_from("<Q", nro, aset + 8 + 32)[0]
-    rom = aset + rom_off
-    _, _, _, _, _, _, _, fm_off, fm_size, data_off = struct.unpack_from("<10Q", nro, rom)
-    pos = 0
-    while pos < fm_size:
-        _, _, foff, fsize, _, nlen = struct.unpack_from("<IIQQII", nro, rom + fm_off + pos)
-        fname = nro[rom + fm_off + pos + 32:rom + fm_off + pos + 32 + nlen].decode()
-        if fname == name:
-            return rom + data_off + foff, fsize
-        pos += 32 + ((nlen + 3) & ~3)
-    raise SystemExit(f"{name} não encontrado no romfs")
-
-
-class Guest:
-    """ELF32 AArch64 (ILP32) dentro do NRO; offsets devolvidos são do NRO."""
-
-    def __init__(self, nro, start):
-        self.nro, self.start = nro, start
-        shoff, = struct.unpack_from("<I", nro, start + 0x20)
-        shentsize, shnum, shstrndx = struct.unpack_from("<HHH", nro, start + 0x2E)
-        secs = []
-        for i in range(shnum):
-            sname, _, _, addr, off, size = struct.unpack_from("<IIIIII", nro, start + shoff + i * shentsize)
-            secs.append((sname, addr, off, size))
-        strtab = start + secs[shstrndx][2]
-        self.secs = {}
-        for sname, addr, off, size in secs:
-            end = nro.index(b"\0", strtab + sname)
-            self.secs[nro[strtab + sname:end].decode()] = (addr, off, size)
-
-    def word(self, off):
-        return struct.unpack_from("<I", self.nro, off)[0]
-
-    def text_words(self):
-        addr, off, size = self.secs[".text"]
-        return [(addr + i, self.start + off + i) for i in range(0, size, 4)]
-
-    def rodata_strings(self, s):
-        """Endereços de todas as cópias da string (o rodata tem duplicatas)."""
-        addr, off, size = self.secs[".rodata"]
-        lo, hi = self.start + off, self.start + off + size
-        needle = b"\0" + s.encode() + b"\0"
-        found, out = lo - 1, []
-        while True:
-            found = self.nro.find(needle, found + 1, hi)
-            if found < 0:
-                break
-            out.append(addr + (found + 1 - lo))
-        if not out:
-            raise SystemExit(f"string {s!r} não encontrada; versão não suportada")
-        return out
 
 
 def find_gate(g, words):
@@ -110,10 +51,7 @@ def find_gate(g, words):
 
 def find_range(g, words):
     """Offset do início do trecho de AimAssist_GetAutoAimRange (original ou já patchado)."""
-    hits = []
-    for _, off in words[:-40]:
-        if all(g.word(off + 4 * i) == v for i, v in RANGE_SIG.items()):
-            hits.append(off)
+    hits = [off for _, off in words[:-40] if all(g.word(off + 4 * i) == v for i, v in RANGE_SIG.items())]
     if len(hits) != 1:
         raise SystemExit(f"AimAssist_GetAutoAimRange encontrado {len(hits)} vezes; versão não suportada")
     return hits[0]
@@ -122,17 +60,14 @@ def find_range(g, words):
 def find_bool_default(g, words, name):
     """Offset do `mov w1, #padrão` na chamada que registra o dvar `name`."""
     targets = {(va & ~0xFFF, va & 0xFFF) for va in g.rodata_strings(name)}
-    is_bl = lambda m: (g.word(words[m][1]) & 0xFC000000) == 0x94000000
+    is_bl = lambda m: bl_target(words[m][0], g.word(words[m][1])) is not None
     sites = set()
     for k, (pc, off) in enumerate(words):
         ins = g.word(off)
-        if (ins & 0x9F000000) != 0x90000000:  # adrp
+        page = adrp_target(pc, ins)
+        if page is None:
             continue
         rd = ins & 31
-        imm = (((ins >> 5) & 0x7FFFF) << 2) | ((ins >> 29) & 3)
-        if imm & (1 << 20):
-            imm -= 1 << 21
-        page = (pc & ~0xFFF) + (imm << 12)
         for j in range(k + 1, min(k + 12, len(words))):
             a = g.word(words[j][1])
             # add w0, w<rd>, #lo
@@ -167,14 +102,14 @@ def main():
     changes = []
     hits, patched = find_gate(g, words)
     if len(hits) == 1:
-        struct.pack_into("<I", nro, hits[0], NOP)
+        g.put(hits[0], NOP)
         changes.append(f"auto-aim do ADS liberado (+0x{hits[0] - start:x})")
     elif not (patched and not hits):
         raise SystemExit(f"assinatura do auto-aim encontrada {len(hits)} vezes (esperado 1); versão não suportada")
 
     off = find_bool_default(g, words, LOCKON)
     if g.word(off) == MOV_W1_0:
-        struct.pack_into("<I", nro, off, MOV_W1_1)
+        g.put(off, MOV_W1_1)
         changes.append(f"{LOCKON} ligado por padrão (+0x{off - start:x})")
 
     base = find_range(g, words)
@@ -184,18 +119,10 @@ def main():
             continue
         if (cur if idx != RANGE_SKIP[0] else cur & 0x9F00001F) != orig:
             raise SystemExit("AimAssist_GetAutoAimRange diferente do esperado; versão não suportada")
-        struct.pack_into("<I", nro, base + 4 * idx, new)
+        g.put(base + 4 * idx, new)
         changes.append(f"alcance do auto-aim: instrução +0x{base + 4 * idx - start:x}")
 
-    if not changes:
-        print("já está patchado; nada a fazer")
-        return
-    if dst == src:
-        shutil.copyfile(src, src + ".bak")
-    with open(dst, "wb") as f:
-        f.write(nro)
-    print("\n".join(changes))
-    print(f"-> {dst}")
+    write_nro(nro, src, dst, changes)
 
 
 if __name__ == "__main__":
