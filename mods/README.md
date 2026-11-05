@@ -25,6 +25,14 @@ python3 patch_fps_counter.py /caminho/para/t6zm.nro
 
 O contador ligado em Opções → **Mostrar FPS** passa a mostrar `60 fps  16.6 ms  max 33 ms`: FPS, frametime médio e o pior quadro dos últimos 32. Um stutter aparece no `max` por cerca de meio segundo. Pode ser aplicado junto com o patch de aim assist, em qualquer ordem.
 
+## Log de desempenho (multiplayer)
+
+```
+python3 patch_perf_log.py /caminho/para/t6mp.nro
+```
+
+O `t6mp.log` passa a receber, sem precisar ligar nada no jogo, uma linha `[perf]` a cada 10 s (quadros, frametime médio e máximo, quantos quadros passaram de 20/34/50/100 ms, V-Sync, Max FPS) e uma linha `[perf] hitch` para cada quadro de 50 ms ou mais. O `t=` usa o mesmo relógio das linhas `[load]` do port. A fonte é `perf_log/perf_log.c`; `perf_log/build.sh` recompila o `perf_log.bin` (precisa do zig). No `t6zm.nro` não sobra espaço depois do contador de FPS.
+
 ## HUD do DXVK (opcional)
 
 `sd/switch/t6game/dxvk-sarek.conf` liga o HUD do DXVK com `fps,frametimes,gpuload,memory`. Ele não tem opção no menu: para desligar, apague o arquivo.
