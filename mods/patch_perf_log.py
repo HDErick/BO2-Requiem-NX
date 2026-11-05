@@ -16,6 +16,11 @@ O código vai no espaço livre depois do primeiro PT_LOAD (como o patch_fps_coun
 o estado (64 bytes) vai logo depois do .bss, com p_memsz aumentado. No t6zm.nro não
 sobra espaço depois do contador de FPS, por isso o script recusa.
 
+Também encurta o vigia de travamentos do host (o thread que grava "[nx-stall]"): em vez
+de acordar a cada 5 s e só reportar quadros parados há 10 s ou mais, acorda a cada 0,5 s
+e reporta a partir de 1 s, com o pc/lr e a pilha do thread principal do jogo. Isso mostra
+onde o jogo está parado nos travamentos de segundos (menus, troca de classe).
+
 Uso: python3 patch_perf_log.py caminho/para/t6mp.nro [saida.nro]
 """
 import os
@@ -36,6 +41,33 @@ def djb2(name):
     for c in name.lower().encode():
         h = (c + 33 * h) & 0xFFFFFFFF
     return h
+
+
+# vigia do host: espera de 5 s (0x12A05F200 ns) entre verificações ...
+WATCH_WAIT = (0xD29E4003, 0xF2A540A3, 0xB90053F5, 0xF2C00023)  # mov/movk x3; str w21,[sp,#0x50]; movk x3
+WATCH_WAIT_NEW = (0xD28CA003, 0xF2A3B9A3, 0xB90053F5, 0xF2C00003)  # 500 000 000 ns
+# ... e "segundos sem quadro > 9" antes de reportar
+WATCH_LIMIT = (0xD358FC21, 0x2A0103E0, 0x7100243F)             # lsr x1,x1,#24; mov w0,w1; cmp w1,#9
+WATCH_LIMIT_NEW = (0xD358FC21, 0x2A0103E0, 0x7100003F)          # cmp w1, #0  -> a partir de 1 s
+
+
+def patch_watchdog(nro):
+    """Encurta o vigia de travamentos do host (código do NRO, fora do guest)."""
+    text_off, text_size = struct.unpack_from("<II", nro, 0x20)
+    text = nro[text_off:text_off + text_size]
+    changes = []
+    for old, new, what in ((WATCH_WAIT, WATCH_WAIT_NEW, "vigia acorda a cada 0,5 s"),
+                           (WATCH_LIMIT, WATCH_LIMIT_NEW, "travamento reportado a partir de 1 s")):
+        old_b, new_b = struct.pack(f"<{len(old)}I", *old), struct.pack(f"<{len(new)}I", *new)
+        hits, done = text.count(old_b), text.count(new_b)
+        if done == 1 and hits == 0:
+            continue
+        if hits != 1:
+            raise SystemExit(f"vigia de travamentos do host: assinatura encontrada {hits} vezes; versão não suportada")
+        pos = text_off + text.find(old_b)
+        nro[pos:pos + len(new_b)] = new_b
+        changes.append(f"host: {what} (+0x{pos:x})")
+    return changes
 
 
 def string_ref(g, words, s):
@@ -145,39 +177,38 @@ def main():
     if not x_flags & 1 or x_off != 0 or x_filesz != x_memsz or not rw_flags & 2:
         raise SystemExit("segmentos do guest inesperados; versão não suportada")
 
+    changes = patch_watchdog(nro)
+
     call_off, call_pc, callee = find_hook(g, words)
     x_end = x_va + x_filesz
-    if callee >= g.secs[".eh_frame"][0] + g.secs[".eh_frame"][2]:
-        print("já está patchado; nada a fazer")
-        return
+    if callee < g.secs[".eh_frame"][0] + g.secs[".eh_frame"][2]:
+        va, nx_log = find_log_fns(g, words)
+        dvar_find = find_dvar_find(g, words)
 
-    va, nx_log = find_log_fns(g, words)
-    dvar_find = find_dvar_find(g, words)
+        blob = bytearray(open(BLOB, "rb").read())
+        cave = (x_end + 15) & ~15
+        end = cave + len(blob)
+        if end > (x_end + 0xFFF) & ~0xFFF:
+            raise SystemExit("sem espaço livre no fim do segmento de código")
+        raw = start + (cave - x_va)
+        if any(nro[start + (x_end - x_va):raw + len(blob)]):
+            raise SystemExit("espaço depois do segmento não está zerado; versão não suportada")
 
-    blob = bytearray(open(BLOB, "rb").read())
-    cave = (x_end + 15) & ~15
-    end = cave + len(blob)
-    if end > (x_end + 0xFFF) & ~0xFFF:
-        raise SystemExit("sem espaço livre no fim do segmento de código")
-    raw = start + (cave - x_va)
-    if any(nro[start + (x_end - x_va):raw + len(blob)]):
-        raise SystemExit("espaço depois do segmento não está zerado; versão não suportada")
+        state = (rw_va + rw_memsz + 15) & ~15
+        if state + STATE_SIZE > (rw_va + rw_memsz + 0xFFF) & ~0xFFF:
+            raise SystemExit("sem espaço no fim do .bss")
 
-    state = (rw_va + rw_memsz + 15) & ~15
-    if state + STATE_SIZE > (rw_va + rw_memsz + 0xFFF) & ~0xFFF:
-        raise SystemExit("sem espaço no fim do .bss")
+        struct.pack_into("<8I", blob, 0, va, nx_log, callee, dvar_find, state,
+                         djb2("r_vsync"), djb2("com_maxfps"), cave)
+        nro[raw:raw + len(blob)] = blob
+        struct.pack_into("<II", nro, ph_x + 16, end - x_va, end - x_va)
+        struct.pack_into("<I", nro, ph_rw + 20, state + STATE_SIZE - rw_va)
+        g.put(call_off, enc_bl(call_pc, cave + ENTRY))
+        changes.append(
+            f"log de desempenho em 0x{cave:x} (estado 0x{state:x}), chamado de 0x{call_pc:x};"
+            f" va 0x{va:x}, nx_log 0x{nx_log:x}, Dvar_GetInt 0x{callee:x}, Dvar_FindVarByHash 0x{dvar_find:x}")
 
-    struct.pack_into("<8I", blob, 0, va, nx_log, callee, dvar_find, state,
-                     djb2("r_vsync"), djb2("com_maxfps"), cave)
-    nro[raw:raw + len(blob)] = blob
-    struct.pack_into("<II", nro, ph_x + 16, end - x_va, end - x_va)
-    struct.pack_into("<I", nro, ph_rw + 20, state + STATE_SIZE - rw_va)
-    g.put(call_off, enc_bl(call_pc, cave + ENTRY))
-
-    write_nro(nro, src, dst, [
-        f"log de desempenho em 0x{cave:x} (estado 0x{state:x}), chamado de 0x{call_pc:x};"
-        f" va 0x{va:x}, nx_log 0x{nx_log:x}, Dvar_GetInt 0x{callee:x}, Dvar_FindVarByHash 0x{dvar_find:x}",
-    ])
+    write_nro(nro, src, dst, changes)
 
 
 if __name__ == "__main__":
