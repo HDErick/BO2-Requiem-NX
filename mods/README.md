@@ -16,6 +16,15 @@ Liga o puxão da mira ao apertar ZL, o lock-on (a mira acompanha o alvo enquanto
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` libera bots em Gun Game, One in the Chamber, Sticks & Stones e Sharpshooter. O botão "Setup Bots" continua desativado nesses modos: configure quantidade e dificuldade num modo normal antes de trocar. Se a quantidade estiver em 0, entram 5 bots (`party_bots_default_count()`).
 
+## Tela inicial (t6game.nro)
+
+```
+pip install pillow
+python3 patch_launcher.py /caminho/para/t6game.nro
+```
+
+Troca o fundo e os itens do launcher por um layout novo (título, menu em PT-BR, dicas de controle) gerado a partir do `launcherBG.png` original, desce o menu e move o botão de atualização para o canto inferior direito ("VERIFICAR UPDATES"). Usa as fontes DIN Condensed Bold e Avenir Next Condensed do macOS; em outro sistema, aponte `LAUNCHER_TITLE_FONT` e `LAUNCHER_TEXT_FONT` para arquivos `.ttf`.
+
 ## Contador de FPS com frametime
 
 ```
