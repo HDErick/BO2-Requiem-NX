@@ -16,9 +16,18 @@ Liga o puxão da mira ao apertar ZL, o lock-on (a mira acompanha o alvo enquanto
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` libera bots em Gun Game, One in the Chamber, Sticks & Stones e Sharpshooter. O botão "Setup Bots" continua desativado nesses modos: configure quantidade e dificuldade num modo normal antes de trocar. Se a quantidade estiver em 0, entram 5 bots (`party_bots_default_count()`).
 
-## HUD de desempenho
+## Contador de FPS com frametime
 
-`sd/switch/t6game/dxvk-sarek.conf` liga o HUD do DXVK com `fps,frametimes,gpuload,memory`. Para desligar, apague o arquivo.
+```
+python3 patch_fps_counter.py /caminho/para/t6mp.nro
+python3 patch_fps_counter.py /caminho/para/t6zm.nro
+```
+
+O contador ligado em Opções → **Mostrar FPS** passa a mostrar `60 fps  16.6 ms  max 33 ms`: FPS, frametime médio e o pior quadro dos últimos 32. Um stutter aparece no `max` por cerca de meio segundo. Pode ser aplicado junto com o patch de aim assist, em qualquer ordem.
+
+## HUD do DXVK (opcional)
+
+`sd/switch/t6game/dxvk-sarek.conf` liga o HUD do DXVK com `fps,frametimes,gpuload,memory`. Ele não tem opção no menu: para desligar, apague o arquivo.
 
 ## Menus em PT-BR
 
