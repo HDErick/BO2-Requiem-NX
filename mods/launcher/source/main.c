@@ -32,6 +32,7 @@
 #define X0 110
 #define MENU_Y 342      /* first main menu row (the title in the background sits 208 px above) */
 #define MENU_STEP 44
+#define MENU_STEP_TIGHT 40  /* with the CAMPAIGN item (6 rows) */
 #define SET_Y 336       /* first settings row */
 #define SET_STEP 36
 #define VALUE_X 600     /* right edge of the values on the settings screen */
@@ -243,16 +244,23 @@ static int load_font(Font *f, const char *path, int index)
 /* ------------------------------------------------------------------ screens */
 
 enum { SCREEN_MAIN, SCREEN_SETTINGS, SCREEN_MODS };
-enum { ITEM_MP, ITEM_ZM, ITEM_SETTINGS, ITEM_MODS, ITEM_UPDATES, ITEM_COUNT };
+enum { ITEM_MP, ITEM_ZM, ITEM_CAMPAIGN, ITEM_SETTINGS, ITEM_MODS, ITEM_UPDATES, ITEM_COUNT };
 
-static const StrId ITEM_LABEL[ITEM_COUNT] = {STR_ITEM_MP, STR_ITEM_ZM, STR_ITEM_SETTINGS, STR_ITEM_MODS,
-                                             STR_ITEM_UPDATES};
-static const StrId ITEM_DESC[ITEM_COUNT] = {STR_DESC_MP, STR_DESC_ZM, STR_DESC_SETTINGS, STR_DESC_MODS,
-                                            STR_DESC_UPDATES};
-static const char *const ITEM_NRO[ITEM_COUNT] = {"t6mp.nro", "t6zm.nro", NULL, NULL, "t6game_orig.nro"};
+static const StrId ITEM_LABEL[ITEM_COUNT] = {STR_ITEM_MP, STR_ITEM_ZM, STR_ITEM_CAMPAIGN, STR_ITEM_SETTINGS,
+                                             STR_ITEM_MODS, STR_ITEM_UPDATES};
+static const StrId ITEM_DESC[ITEM_COUNT] = {STR_DESC_MP, STR_DESC_ZM, STR_DESC_CAMPAIGN, STR_DESC_SETTINGS,
+                                            STR_DESC_MODS, STR_DESC_UPDATES};
+/* The campaign is the bo2-360-nx Xbox 360 recompilation (github.com/AlvaroEPena/bo2-360-nx),
+ * a separate install: the item only shows up when its NRO is on the SD card. */
+#ifndef CAMPAIGN_NRO
+#define CAMPAIGN_NRO "sdmc:/switch/bo2zm/bo2cp.nro"
+#endif
+static const char *const ITEM_NRO[ITEM_COUNT] = {GAME_DIR "/t6mp.nro", GAME_DIR "/t6zm.nro", CAMPAIGN_NRO, NULL,
+                                                 NULL, GAME_DIR "/t6game_orig.nro"};
 
 typedef struct {
     int screen;
+    int items[ITEM_COUNT], nitems, step;    /* main menu rows (CAMPAIGN only if installed) */
     int sel, set_sel, mod_sel;
     Option opts[OPT_COUNT];
     int dirty;
@@ -288,11 +296,16 @@ static void mods_join(void)
 
 static Framebuffer fb;
 
-static int nro_exists(const char *name)
+static int nro_exists(const char *path) { return access(path, F_OK) == 0; }
+
+static void menu_init(State *s)
 {
-    char p[256];
-    snprintf(p, sizeof p, GAME_DIR "/%s", name);
-    return access(p, F_OK) == 0;
+    s->nitems = 0;
+    for (int i = 0; i < ITEM_COUNT; i++)
+        if (i != ITEM_CAMPAIGN || nro_exists(CAMPAIGN_NRO))
+            s->items[s->nitems++] = i;
+    s->step = s->nitems > 5 ? MENU_STEP_TIGHT : MENU_STEP;
+    s->sel = nro_exists(ITEM_NRO[ITEM_MP]) ? 0 : 1;  /* MP or ZM: always the first two rows */
 }
 
 static void hint(float *x, const char *glyph_text, int glyph_kind, const char *label)
@@ -315,18 +328,18 @@ static void hint(float *x, const char *glyph_text, int glyph_kind, const char *l
 static void draw_main(const State *s)
 {
     draw_text(&f_text, 16, X0, MENU_Y - 30, tr(STR_TITLE_MAIN), GRAY, 4);
-    fill_rect(X0 - 22, MENU_Y - 4, 4, ITEM_COUNT * MENU_STEP - 8, (Color){255, 122, 0, 70});
-    for (int i = 0; i < ITEM_COUNT; i++) {
-        int y = MENU_Y + i * MENU_STEP;
+    fill_rect(X0 - 22, MENU_Y - 4, 4, s->nitems * s->step - 8, (Color){255, 122, 0, 70});
+    for (int i = 0; i < s->nitems; i++) {
+        int item = s->items[i], y = MENU_Y + i * s->step;
         int sel = i == s->sel;
-        int missing = ITEM_NRO[i] && !nro_exists(ITEM_NRO[i]);
+        int missing = ITEM_NRO[item] && !nro_exists(ITEM_NRO[item]);
         Color c = sel ? ORANGE : missing ? DIM : WHITE;
         if (sel)
             fill_rect(X0 - 22, y - 4, 4, 36, ORANGE);
-        draw_shadowed(&f_title, 38, X0, y + 3, tr(ITEM_LABEL[i]), c, 3);
-        fill_rect(X0, y + 39, 440, 1, (Color){255, 255, 255, 22});
+        draw_shadowed(&f_title, 38, X0, y + 3, tr(ITEM_LABEL[item]), c, 3);
+        fill_rect(X0, y + s->step - 5, 440, 1, (Color){255, 255, 255, 22});
     }
-    const char *desc = s->message[0] ? s->message : tr(ITEM_DESC[s->sel]);
+    const char *desc = s->message[0] ? s->message : tr(ITEM_DESC[s->items[s->sel]]);
     draw_wrapped(&f_text, 19, X0, DESC_Y, 520, 24, desc, !s->message[0] ? GRAY : s->busy ? WHITE : ORANGE);
 
     float x = X0 + 40;
@@ -493,8 +506,8 @@ static int activate(State *s, int item)
         s->screen = SCREEN_MODS;
         return 0;
     }
-    const char *name = ITEM_NRO[item];
-    if (!nro_exists(name)) {
+    const char *path = ITEM_NRO[item], *name = strrchr(path, '/') + 1;
+    if (!nro_exists(path)) {
         if (item == ITEM_UPDATES)
             snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NO_ORIG_LAUNCHER));
         else
@@ -509,7 +522,7 @@ static int activate(State *s, int item)
         snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NO_NEXT_LOAD));
         return 0;
     }
-    snprintf(s->launch, sizeof s->launch, GAME_DIR "/%s", name);
+    snprintf(s->launch, sizeof s->launch, "%s", path);
     Result rc = envSetNextLoad(s->launch, s->launch);
     if (R_FAILED(rc)) {
         snprintf(s->message, sizeof s->message, tr(STR_ERR_LAUNCH_FMT), name, rc);
@@ -581,7 +594,7 @@ int main(int argc, char **argv)
     AppletType at = appletGetAppletType();
     s.app_mode = at == AppletType_Application || at == AppletType_SystemApplication;
     settings_load(s.opts);
-    s.sel = nro_exists("t6mp.nro") ? ITEM_MP : ITEM_ZM;
+    menu_init(&s);
     if (mods_game_version(s.version, sizeof s.version))
         s.version[0] = 0;
     mods_thread_on = R_SUCCEEDED(threadCreate(&mods_thread, mods_worker, &s, NULL, 0x10000, 0x3B, -2));
@@ -605,15 +618,15 @@ int main(int argc, char **argv)
         if (s.screen == SCREEN_MAIN) {
             if (down & HidNpadButton_Plus)
                 break;
-            if (down & HidNpadButton_AnyUp) { s.sel = (s.sel + ITEM_COUNT - 1) % ITEM_COUNT; s.message[0] = 0; }
-            if (down & HidNpadButton_AnyDown) { s.sel = (s.sel + 1) % ITEM_COUNT; s.message[0] = 0; }
+            if (down & HidNpadButton_AnyUp) { s.sel = (s.sel + s.nitems - 1) % s.nitems; s.message[0] = 0; }
+            if (down & HidNpadButton_AnyDown) { s.sel = (s.sel + 1) % s.nitems; s.message[0] = 0; }
             if (down & HidNpadButton_A)
-                quit = activate(&s, s.sel);
+                quit = activate(&s, s.items[s.sel]);
             if (tapped && tx >= X0 - 30 && tx < X0 + 460) {
-                int row = hit_row(ty, MENU_Y, MENU_STEP, ITEM_COUNT);
+                int row = hit_row(ty, MENU_Y, s.step, s.nitems);
                 if (row >= 0) {
                     s.sel = row;
-                    quit = activate(&s, row);
+                    quit = activate(&s, s.items[row]);
                 }
             }
         } else {

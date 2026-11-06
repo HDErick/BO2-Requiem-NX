@@ -241,7 +241,87 @@ static int any_on(const int state[MOD_COUNT])
     return 0;
 }
 
-/* Rebuilds one NRO from its original with the wanted mods. */
+/* A byte of the current NRO that the launcher's mods do not explain: another patch applied
+ * on top, like patch_ptbr_port_strings.py. Rebuilds keep it. */
+typedef struct {
+    uint32_t off;
+    uint8_t mods;   /* what the .bak plus the current mods has there */
+    uint8_t cur;    /* what the current NRO has */
+    uint8_t orig;   /* the .bak byte */
+} Extra;
+
+#define MAX_EXTRA (1u << 20)   /* more than this is a different game version, not a patch */
+
+/* Compares the file with `built` (streamed, the file is not loaded whole). -1 if the sizes
+ * differ or there are more than MAX_EXTRA differences. */
+static int find_extras(const char *path, const uint8_t *built, size_t len, Extra **out, size_t *count)
+{
+    *out = NULL;
+    *count = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return -1;
+    uint8_t *chunk = malloc(CHUNK);
+    size_t cap = 0, pos = 0;
+    int r = chunk ? 0 : -1;
+    while (!r && pos < len) {
+        size_t want = len - pos < CHUNK ? len - pos : CHUNK;
+        if (fread(chunk, 1, want, f) != want) {
+            r = -1;
+            break;
+        }
+        for (size_t i = 0; i < want && !r; i++) {
+            if (chunk[i] == built[pos + i])
+                continue;
+            if (*count == MAX_EXTRA) {
+                r = -1;
+                break;
+            }
+            if (*count == cap) {
+                cap = cap ? cap * 2 : 4096;
+                Extra *grown = realloc(*out, cap * sizeof **out);
+                if (!grown) {
+                    r = -1;
+                    break;
+                }
+                *out = grown;
+            }
+            (*out)[(*count)++] = (Extra){(uint32_t)(pos + i), built[pos + i], chunk[i], 0};
+        }
+        pos += want;
+    }
+    if (!r && fgetc(f) != EOF)
+        r = -1;
+    free(chunk);
+    fclose(f);
+    if (r) {
+        free(*out);
+        *out = NULL;
+        *count = 0;
+    }
+    return r;
+}
+
+static void on_flags(const int state[MOD_COUNT], int on[MOD_COUNT])
+{
+    for (int i = 0; i < MOD_COUNT; i++)
+        on[i] = state[i] == MOD_ON;
+}
+
+/* the original, or NULL if the .bak is missing, unsupported or patched */
+static uint8_t *load_original(const char *bak, size_t *len)
+{
+    int st[MOD_COUNT];
+    char why[160];
+    uint8_t *buf = load(bak, len);
+    if (buf && (mods_detect(buf, *len, st, why, sizeof why) || any_on(st))) {
+        free(buf);
+        buf = NULL;
+    }
+    return buf;
+}
+
+/* Rebuilds one NRO from its original with the wanted mods, keeping other patches. */
 static int rebuild(int game, ModGame *m, const ModBlobs *blobs, char *err, size_t errlen)
 {
     char path[300], bak[300], why[160];
@@ -249,9 +329,9 @@ static int rebuild(int game, ModGame *m, const ModBlobs *blobs, char *err, size_
     nro_path(bak, sizeof bak, game, ".bak");
     const char *name = NRO_NAME[game];
 
-    size_t len;
+    size_t len, blen;
+    int st[MOD_COUNT], on[MOD_COUNT];
     uint8_t *nro = load(path, &len);
-    int st[MOD_COUNT];
     if (!nro) {
         snprintf(err, errlen, tr(STR_ERR_READ_FMT), name);
         return -1;
@@ -261,37 +341,64 @@ static int rebuild(int game, ModGame *m, const ModBlobs *blobs, char *err, size_
         snprintf(err, errlen, tr(STR_ERR_MODS_UNSUPPORTED_FMT), name, why);
         return -1;
     }
-    if (!any_on(st)) {
-        /* unpatched (first time, or a game update): this is the original */
-        if (!same_file(bak, nro, len) && save_file(bak, nro, len)) {
-            free(nro);
+    free(nro);
+
+    /* the .bak with the mods applied now must give the current NRO, apart from other patches */
+    Extra *extra = NULL;
+    size_t nextra = 0;
+    uint8_t *base = load_original(bak, &blen);
+    on_flags(st, on);
+    if (base && blen == len && (any_on(st) ? mods_apply(base, blen, on, blobs, why, sizeof why) == 0 : 1) &&
+        find_extras(path, base, len, &extra, &nextra) == 0) {
+        if (any_on(st)) {
+            free(base);
+            base = load(bak, &blen);   /* back to the original bytes */
+        }
+    } else if (!any_on(st)) {
+        /* no usable .bak, or a new game version: the current NRO is the original */
+        free(base);
+        base = load(path, &blen);
+        if (!base || (!same_file(bak, base, blen) && save_file(bak, base, blen))) {
+            free(base);
             snprintf(err, errlen, tr(STR_ERR_WRITE_FMT), bak);
             return -1;
         }
     } else {
-        free(nro);
-        nro = load(bak, &len);
-        if (!nro) {
-            snprintf(err, errlen, tr(STR_ERR_MODS_NO_BAK_FMT), name, name);
-            return -1;
-        }
-        if (mods_detect(nro, len, st, why, sizeof why) || any_on(st)) {
-            free(nro);
-            snprintf(err, errlen, tr(STR_ERR_MODS_BAK_PATCHED_FMT), name);
-            return -1;
-        }
+        StrId why_bak = base ? STR_ERR_MODS_BAK_MISMATCH_FMT : STR_ERR_MODS_NO_BAK_FMT;
+        free(base);
+        snprintf(err, errlen, tr(why_bak), name, name);
+        return -1;
+    }
+    if (!base) {
+        free(extra);
+        snprintf(err, errlen, tr(STR_ERR_READ_FMT), bak);
+        return -1;
     }
 
-    int want[MOD_COUNT];
-    for (int i = 0; i < MOD_COUNT; i++)
-        want[i] = m->want[i] == MOD_ON;
-    if (mods_apply(nro, len, want, blobs, why, sizeof why)) {
-        free(nro);
+    int fail = 0;
+    for (size_t i = 0; i < nextra && !fail; i++) {
+        extra[i].orig = base[extra[i].off];
+        fail = extra[i].orig != extra[i].mods;   /* the other patch changed a byte of our mods */
+    }
+    on_flags(m->want, on);
+    if (!fail && mods_apply(base, blen, on, blobs, why, sizeof why)) {
+        free(base);
+        free(extra);
         snprintf(err, errlen, tr(STR_ERR_MODS_UNSUPPORTED_FMT), name, why);
         return -1;
     }
-    int r = save_file(path, nro, len);
-    free(nro);
+    for (size_t i = 0; i < nextra && !fail; i++) {
+        fail = base[extra[i].off] != extra[i].orig;   /* ... or the wanted mods change one of its bytes */
+        base[extra[i].off] = extra[i].cur;
+    }
+    free(extra);
+    if (fail) {
+        free(base);
+        snprintf(err, errlen, tr(STR_ERR_MODS_OVERLAP_FMT), name);
+        return -1;
+    }
+    int r = save_file(path, base, blen);
+    free(base);
     if (r) {
         snprintf(err, errlen, tr(STR_ERR_WRITE_FMT), path);
         return -1;

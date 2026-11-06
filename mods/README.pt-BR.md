@@ -29,7 +29,7 @@ launcher/build.sh /caminho/para/t6game.nro.original t6game.nro
 
 Substitui o launcher do Requiem por um próprio (libnx, `launcher/source`), com o mesmo visual do fundo original e as opções Multijogador, Zumbis, Configurações, Mods e Atualizações. Os textos seguem o idioma do console: português quando o sistema está em português, inglês nos demais casos. As telas trocam com fade, a navegação toca o som do launcher original e o rodapé mostra a versão do jogo e os mods aplicados no `t6mp.nro`/`t6zm.nro` (lidos em segundo plano quando o launcher abre). Compila no container `devkitpro/devkita64` (docker). Os assets (fundo, ícone, fontes, som) são gerados por `launcher/make_assets.py` a partir do NRO original e das fontes DIN Condensed Bold / Avenir Next Condensed do macOS; em outro sistema, use `LAUNCHER_TITLE_FONT`, `LAUNCHER_TEXT_FONT` e os índices das faces. O som é convertido com ffmpeg ou com o `afconvert` do macOS; sem eles, o launcher fica mudo.
 
-No SD, renomeie o launcher original para `t6game_orig.nro`: o item **Atualizações** abre ele, que é quem busca e instala versões novas (e pode trocar o `t6game.nro` de volta pelo oficial).
+No SD, renomeie o launcher original para `t6game_orig.nro`: o item **Atualizações** abre ele, que é quem busca e instala versões novas (e pode trocar o `t6game.nro` de volta pelo oficial). O item **Campanha** aparece quando a campanha do [bo2-360-nx](https://github.com/AlvaroEPena/bo2-360-nx) (a versão de Xbox 360, instalada à parte) está em `sdmc:/switch/bo2zm/bo2cp.nro`, e abre ela.
 
 Em **Configurações**:
 
