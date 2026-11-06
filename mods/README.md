@@ -60,6 +60,15 @@ python3 patch_perf_log.py /path/to/t6mp.nro
 
 Without enabling anything in the game, `t6mp.log` gets a `[perf] t=... ms: N frames, avg ... ms, max ... ms, ...` line every 10 s (frames, average and max frametime, how many frames exceeded 20/34/50/100 ms, V-Sync, Max FPS, log write cost) and a `[perf] hitch N ms at t=... ms` line for each frame of 50 ms or more (at most 4 per 10 s). `t=` uses the same clock as the port's `[load]` lines. The source is `perf_log/perf_log.c`; `perf_log/build.sh` rebuilds `perf_log.bin` (needs zig). In `t6zm.nro` there is no space left after the FPS counter.
 
+## Log without fsync per line
+
+```
+python3 patch_log_nofsync.py /path/to/t6mp.nro
+python3 patch_log_nofsync.py /path/to/t6zm.nro
+```
+
+The port calls fsync after every `t6mp.log`/`t6zm.log` line, which costs about 17 ms on the SD card: any line logged during a match (bots picking classes, the `[perf]` summary) becomes a hitch. The patch removes that fsync from the host's log function; lines are still written immediately. The crash handler flushes the file on its own, so `[nx-crash]` reports are kept; only the last lines before a power-off or a pulled SD card can be lost. Works on both NROs and with the other patches, in any order.
+
 ## DXVK HUD (optional)
 
 `sd/switch/t6game/dxvk-sarek.conf` enables the DXVK HUD with `fps,frametimes,gpuload,memory`, for when you don't use the new launcher (which writes this file from **Settings → Performance graph**). To turn it off by hand, delete the file.
