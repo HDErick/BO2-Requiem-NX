@@ -85,3 +85,14 @@ Use a localização oficial portada por Thermite: <https://github.com/ThermiteK/
 - `images/` para `/switch/t6game/images/`
 
 O port lê os `.str` de `raw/localizedstrings` (arquivos `_mp` só no multiplayer, `_zm` só no Zombies).
+
+## Textos em PT-BR das opções do próprio port
+
+```
+python3 patch_ptbr_port_strings.py /caminho/para/t6mp.nro
+python3 patch_ptbr_port_strings.py /caminho/para/t6zm.nro
+```
+
+As opções que o port adicionou não estão nas strings localizadas do jogo, então a localização acima as deixa em inglês. Este patch as traduz: Controles → Gamepad (AIM ASSIST → MIRA ASSISTIDA, GYRO AIMING → GIROSCÓPIO, AUTO RUN → CORRIDA AUTOMÁTICA, RESPONSE CURVE → CURVA DE RESPOSTA, SENSITIVITY HORIZONTAL / VERTICAL, os sliders de ADS), a aba DEADZONES (ZONAS MORTAS), Configurações → Gráficos MAIN MENU (MENU PRINCIPAL) e o popup de reinício, com descrições e opções. As mensagens de log continuam em inglês. Depois do patch os textos ficam sempre em português (o port roda o jogo em inglês e a localização substitui os textos em inglês, então não há idioma para seguir): aplique só se você usa a localização PT-BR; o `.bak` é o NRO sem tradução.
+
+Nada cresce e nenhum código muda: cada texto é reescrito no lugar do inglês (uma entrada de tabela mais longa vai depois de uma descrição encurtada e o ponteiro dela passa a apontar para lá), e o Lua embutido do port para esses menus é reescrito no mesmo tamanho, sem os comentários. Funciona junto com os outros patches, em qualquer ordem. A tela MODS do launcher mantém a tradução: ela refaz o NRO a partir do `.bak` e depois devolve os bytes de outros patches como este (se nenhum mod do launcher estiver ligado e não houver `.bak`, a MODS assume o NRO atual, traduzido ou não, como o `.bak`).

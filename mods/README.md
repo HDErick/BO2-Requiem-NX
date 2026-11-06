@@ -85,3 +85,14 @@ Use the official localization ported by Thermite: <https://github.com/ThermiteK/
 - `images/` to `/switch/t6game/images/`
 
 The port reads the `.str` files from `raw/localizedstrings` (`_mp` files only in multiplayer, `_zm` only in Zombies).
+
+## PT-BR texts for the port's own options
+
+```
+python3 patch_ptbr_port_strings.py /path/to/t6mp.nro
+python3 patch_ptbr_port_strings.py /path/to/t6zm.nro
+```
+
+The options the port added are not in the game's localized strings, so the localization above leaves them in English. This patch translates them: Controls → Gamepad (AIM ASSIST → MIRA ASSISTIDA, GYRO AIMING → GIROSCÓPIO, AUTO RUN → CORRIDA AUTOMÁTICA, RESPONSE CURVE → CURVA DE RESPOSTA, SENSITIVITY HORIZONTAL / VERTICAL, the ADS sliders), the DEADZONES tab (ZONAS MORTAS), Settings → Graphics MAIN MENU (MENU PRINCIPAL) and its restart popup, with their descriptions and choices. Log messages stay in English. The texts are always in Portuguese after the patch (the port runs the game in English and the localization replaces the English texts, so there is no language to follow): apply it only if you use the PT-BR localization; the `.bak` is the untranslated NRO.
+
+Nothing grows and no code changes: each text is rewritten in place over the English one (a longer table entry goes after a shortened description and its pointer is moved there), and the port's embedded Lua for these menus is rewritten at the same size without its comments. Works with the other patches, in any order. The launcher's MODS screen keeps it: changes there rebuild the NRO from `.bak` and then put back the bytes of other patches like this one (if no launcher mod is on and there is no `.bak`, MODS takes the current NRO, translated or not, as the `.bak`).
