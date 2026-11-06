@@ -1,5 +1,5 @@
 #!/bin/sh
-# Recompila perf_log.bin. Precisa do zig: no PATH, ou ZIG="python3 -m ziglang" (pip install ziglang).
+# Rebuilds perf_log.bin. Needs zig: on PATH, or ZIG="python3 -m ziglang" (pip install ziglang).
 set -e
 cd "$(dirname "$0")"
 ZIG="${ZIG:-zig}"

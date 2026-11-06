@@ -1,4 +1,4 @@
-/* Blob único: tabela, entrada e o resto. O endereço é irrelevante (código PIC, -mcmodel=tiny). */
+/* Single blob: table, entry point, then the rest. The address does not matter (PIC code, -mcmodel=tiny). */
 ENTRY(perf_frame)
 SECTIONS
 {

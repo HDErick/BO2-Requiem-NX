@@ -1,16 +1,16 @@
-"""Acesso ao t6*_guest.elf (ELF32 AArch64 ILP32) embutido no romfs de um NRO do Requiem NX."""
+"""Access to the t6*_guest.elf (ELF32 AArch64 ILP32) embedded in the romfs of a Requiem NX NRO."""
 import os
 import shutil
 import struct
 
 
 def romfs_file(nro, name):
-    """Offset e tamanho, no NRO, do arquivo `name` na raiz do romfs."""
+    """NRO offset and size of file `name` in the romfs root."""
     if nro[0x10:0x14] != b"NRO0":
-        raise SystemExit("não é um NRO")
+        raise SystemExit("not an NRO")
     aset = struct.unpack_from("<I", nro, 0x18)[0]
     if nro[aset:aset + 4] != b"ASET":
-        raise SystemExit("NRO sem seção ASET/romfs")
+        raise SystemExit("NRO has no ASET/romfs section")
     rom_off = struct.unpack_from("<Q", nro, aset + 8 + 32)[0]
     rom = aset + rom_off
     _, _, _, _, _, _, _, fm_off, fm_size, data_off = struct.unpack_from("<10Q", nro, rom)
@@ -21,21 +21,21 @@ def romfs_file(nro, name):
         if fname == name:
             return rom + data_off + foff, fsize
         pos += 32 + ((nlen + 3) & ~3)
-    raise SystemExit(f"{name} não encontrado no romfs")
+    raise SystemExit(f"{name} not found in romfs")
 
 
 def find_guest(nro):
-    """(nome, offset) do primeiro t6*_guest.elf do romfs."""
+    """(name, offset) of the first t6*_guest.elf in the romfs."""
     for name in ("t6mp_guest.elf", "t6zm_guest.elf"):
         try:
             return name, romfs_file(nro, name)[0]
         except SystemExit:
             continue
-    raise SystemExit("nenhum t6*_guest.elf no romfs")
+    raise SystemExit("no t6*_guest.elf in romfs")
 
 
 class Guest:
-    """Offsets devolvidos são do NRO; endereços são VAs do guest."""
+    """Returned offsets are NRO offsets; addresses are guest VAs."""
 
     def __init__(self, nro, start):
         self.nro, self.start = nro, start
@@ -65,15 +65,15 @@ class Guest:
         return [(addr + i, self.start + off + i) for i in range(0, size, 4)]
 
     def va_to_off(self, va):
-        """Offset no NRO de um VA coberto pelo arquivo (segmentos PT_LOAD)."""
+        """NRO offset of a VA backed by file data (PT_LOAD segments)."""
         for ph in self.phdrs:
             ptype, off, vaddr, _, filesz, _, _, _ = struct.unpack_from("<8I", self.nro, ph)
             if ptype == 1 and vaddr <= va < vaddr + filesz:
                 return self.start + off + (va - vaddr)
-        raise SystemExit(f"VA 0x{va:x} fora dos segmentos do arquivo")
+        raise SystemExit(f"VA 0x{va:x} outside the file-backed segments")
 
     def rodata_strings(self, s):
-        """Endereços de todas as cópias da string (o rodata tem duplicatas)."""
+        """Addresses of every copy of the string (rodata has duplicates)."""
         addr, off, size = self.secs[".rodata"]
         lo, hi = self.start + off, self.start + off + size
         needle = b"\0" + s.encode() + b"\0"
@@ -84,12 +84,12 @@ class Guest:
                 break
             out.append(addr + (found + 1 - lo))
         if not out:
-            raise SystemExit(f"string {s!r} não encontrada; versão não suportada")
+            raise SystemExit(f"string {s!r} not found; unsupported version")
         return out
 
 
 def adrp_target(pc, ins):
-    """Página alvo de um `adrp`, ou None se `ins` não for adrp."""
+    """Target page of an `adrp`, or None if `ins` is not an adrp."""
     if (ins & 0x9F000000) != 0x90000000:
         return None
     imm = (((ins >> 5) & 0x7FFFF) << 2) | ((ins >> 29) & 3)
@@ -130,10 +130,10 @@ def enc_bcond(pc, target, cond):
 
 def write_nro(nro, src, dst, changes):
     if not changes:
-        print("já está patchado; nada a fazer")
+        print("already patched; nothing to do")
         return
     if dst == src and not os.path.exists(src + ".bak"):
-        # o primeiro .bak fica sendo o original, mesmo rodando vários patches em sequência
+        # the first .bak stays the original, even when several patches run in sequence
         shutil.copyfile(src, src + ".bak")
     with open(dst, "wb") as f:
         f.write(nro)

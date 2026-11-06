@@ -1,18 +1,18 @@
-// Bots nos modos Party (Gun Game, One in the Chamber, Sticks & Stones, Sharpshooter)
+// Bots in Party modes (Gun Game, One in the Chamber, Sticks & Stones, Sharpshooter)
 // BO2 Requiem NX: /switch/t6game/scripts/mp/party_bots.gsc
 //
-// O _bot.gsc original so cria bots em dm, tdm, ctf, dem, dom, koth, hq e conf.
-// Este script troca bot_gametype_allowed() para aceitar tambem gun, oic, sas e shrp.
-// Como o lobby desativa "Configurar Bots" nesses modos, usa a quantidade/dificuldade
-// que ficou salva da ultima vez que voce configurou bots num modo normal; se estiver
-// zerada, usa party_bots_default_count().
+// The stock _bot.gsc only spawns bots in dm, tdm, ctf, dem, dom, koth, hq and conf.
+// This script replaces bot_gametype_allowed() so it also accepts gun, oic, sas and shrp.
+// The lobby disables "Setup Bots" in these modes, so the count/difficulty saved the
+// last time you set up bots in a regular mode is used; if the count is zero,
+// party_bots_default_count() is used instead.
 
 main()
 {
     replacefunc( maps\mp\bots\_bot::bot_gametype_allowed, ::party_bot_gametype_allowed );
 }
 
-// Inimigos usados nos modos Party quando bot_enemies esta em 0. Edite se quiser.
+// Enemy count used in Party modes when bot_enemies is 0. Edit to taste.
 party_bots_default_count()
 {
     return 5;

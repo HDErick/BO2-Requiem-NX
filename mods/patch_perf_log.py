@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
-"""Log automático de desempenho no t6mp.log (só multiplayer).
+"""Automatic performance log in t6mp.log (multiplayer only).
 
-Liga o perf_log/perf_log.bin (fonte em perf_log/perf_log.c) na chamada que o SCR do
-port faz uma vez por quadro para ler cg_drawFPS. O t6mp.log passa a receber:
+Hooks perf_log/perf_log.bin (source in perf_log/perf_log.c) into the call the port's
+SCR makes once per frame to read cg_drawFPS. t6mp.log then receives:
 
-  [perf] t=123456 ms: 597 quadros, media 16.77 ms, max 60.0 ms, >=20ms 1, >=34ms 1,
-         >=50ms 1, >=100ms 0, vsync 1, maxfps 60, log 850 us     (a cada 10 s)
-  [perf] hitch 60 ms em t=123000 ms                               (quadros >= 50 ms, até 4 por janela)
+  [perf] t=123456 ms: 597 frames, avg 16.77 ms, max 60.0 ms, >=20ms 1, >=34ms 1,
+         >=50ms 1, >=100ms 0, vsync 1, maxfps 60, log 850 us     (every 10 s)
+  [perf] hitch 60 ms at t=123000 ms   (frames >= 50 ms, up to 4 per window)
 
-"t" usa o mesmo relógio das linhas "[load] %u ms" do próprio port, para cruzar eventos.
-"log" é o pior tempo gasto escrevendo no log na janela anterior; esse tempo não entra
-nas medições.
+"t" uses the same clock as the port's own "[load] %u ms" lines, so events can be correlated.
+"log" is the worst time spent writing to the log in the previous window; that time is
+excluded from the measurements.
 
-O código vai no espaço livre depois do primeiro PT_LOAD (como o patch_fps_counter.py);
-o estado (64 bytes) vai logo depois do .bss, com p_memsz aumentado. No t6zm.nro não
-sobra espaço depois do contador de FPS, por isso o script recusa.
+The code goes in the free space after the first PT_LOAD (like patch_fps_counter.py);
+the state (64 bytes) goes right after .bss, with p_memsz increased. t6zm.nro has no
+space left after the FPS counter, so the script refuses it.
 
-Também encurta o vigia de travamentos do host (o thread que grava "[nx-stall]"): em vez
-de acordar a cada 5 s e só reportar quadros parados há 10 s ou mais, acorda a cada 0,5 s
-e reporta a partir de 1 s, com o pc/lr e a pilha do thread principal do jogo. Isso mostra
-onde o jogo está parado nos travamentos de segundos (menus, troca de classe).
+Also shortens the host stall watchdog (the thread that writes "[nx-stall]"): instead of
+waking every 5 s and only reporting frames stuck for 10 s or more, it wakes every 0.5 s
+and reports from 1 s, with the pc/lr and stack of the game's main thread. This shows
+where the game is stuck during multi-second stalls (menus, class changes).
 
-Uso: python3 patch_perf_log.py caminho/para/t6mp.nro [saida.nro]
+Usage: python3 patch_perf_log.py path/to/t6mp.nro [output.nro]
 """
 import os
 import struct
@@ -43,27 +43,27 @@ def djb2(name):
     return h
 
 
-# vigia do host: espera de 5 s (0x12A05F200 ns) entre verificações ...
+# host watchdog: 5 s wait (0x12A05F200 ns) between checks ...
 WATCH_WAIT = (0xD29E4003, 0xF2A540A3, 0xB90053F5, 0xF2C00023)  # mov/movk x3; str w21,[sp,#0x50]; movk x3
 WATCH_WAIT_NEW = (0xD28CA003, 0xF2A3B9A3, 0xB90053F5, 0xF2C00003)  # 500 000 000 ns
-# ... e "segundos sem quadro > 9" antes de reportar
+# ... and "seconds without a frame > 9" before reporting
 WATCH_LIMIT = (0xD358FC21, 0x2A0103E0, 0x7100243F)             # lsr x1,x1,#24; mov w0,w1; cmp w1,#9
-WATCH_LIMIT_NEW = (0xD358FC21, 0x2A0103E0, 0x7100003F)          # cmp w1, #0  -> a partir de 1 s
+WATCH_LIMIT_NEW = (0xD358FC21, 0x2A0103E0, 0x7100003F)          # cmp w1, #0  -> from 1 s
 
 
 def patch_watchdog(nro):
-    """Encurta o vigia de travamentos do host (código do NRO, fora do guest)."""
+    """Shortens the host stall watchdog (NRO code, outside the guest)."""
     text_off, text_size = struct.unpack_from("<II", nro, 0x20)
     text = nro[text_off:text_off + text_size]
     changes = []
-    for old, new, what in ((WATCH_WAIT, WATCH_WAIT_NEW, "vigia acorda a cada 0,5 s"),
-                           (WATCH_LIMIT, WATCH_LIMIT_NEW, "travamento reportado a partir de 1 s")):
+    for old, new, what in ((WATCH_WAIT, WATCH_WAIT_NEW, "watchdog wakes every 0.5 s"),
+                           (WATCH_LIMIT, WATCH_LIMIT_NEW, "stalls reported from 1 s")):
         old_b, new_b = struct.pack(f"<{len(old)}I", *old), struct.pack(f"<{len(new)}I", *new)
         hits, done = text.count(old_b), text.count(new_b)
         if done == 1 and hits == 0:
             continue
         if hits != 1:
-            raise SystemExit(f"vigia de travamentos do host: assinatura encontrada {hits} vezes; versão não suportada")
+            raise SystemExit(f"host stall watchdog: signature found {hits} times; unsupported version")
         pos = text_off + text.find(old_b)
         nro[pos:pos + len(new_b)] = new_b
         changes.append(f"host: {what} (+0x{pos:x})")
@@ -71,7 +71,7 @@ def patch_watchdog(nro):
 
 
 def string_ref(g, words, s):
-    """Offsets dos `add w0, wN, #lo` que formam o endereço da string `s` (com o adrp antes)."""
+    """Offsets of the `add w0, wN, #lo` that form the address of string `s` (with the adrp before)."""
     targets = set(g.rodata_strings(s))
     hits = []
     for k, (pc, off) in enumerate(words[:-1]):
@@ -97,22 +97,22 @@ def next_bls(g, words, j, count, limit=12):
             out.append((m, t))
             if len(out) == count:
                 return out
-    raise SystemExit("chamadas esperadas não encontradas; versão não suportada")
+    raise SystemExit("expected calls not found; unsupported version")
 
 
 def find_log_fns(g, words):
-    """va() e nx_log() a partir de nx_log(va("[load] %u ms: zone %s done, %d assets", ...))."""
+    """va() and nx_log() from nx_log(va("[load] %u ms: zone %s done, %d assets", ...))."""
     refs = string_ref(g, words, "[load] %u ms: zone %s done, %d assets")
     if len(refs) != 1:
-        raise SystemExit("linha [load] do port não encontrada; versão não suportada")
+        raise SystemExit("port [load] line not found; unsupported version")
     (m1, va), (m2, nx_log) = next_bls(g, words, refs[0], 2, limit=6)
     if m2 != m1 + 1:
-        raise SystemExit("chamada de log inesperada; versão não suportada")
+        raise SystemExit("unexpected log call; unsupported version")
     return va, nx_log
 
 
 def find_dvar_find(g, words):
-    """Dvar_FindVarByHash: em SetSavedDvar, `bl hash; bl find; mov w1, w0; cbz w0, ...`."""
+    """Dvar_FindVarByHash: in SetSavedDvar, `bl hash; bl find; mov w1, w0; cbz w0, ...`."""
     found = set()
     for j in string_ref(g, words, 'SetSavedDvar(): The dvar "%s" does not exist.'):
         for m in range(max(j - 200, 0), min(j + 200, len(words) - 3)):
@@ -122,12 +122,12 @@ def find_dvar_find(g, words):
                     and (g.word(words[m + 3][1]) & 0xFF00001F) == 0x34000000:
                 found.add(bl_target(words[m + 1][0], b))
     if len(found) != 1:
-        raise SystemExit(f"Dvar_FindVarByHash encontrado {len(found)} vezes; versão não suportada")
+        raise SystemExit(f"Dvar_FindVarByHash found {len(found)} times; unsupported version")
     return found.pop()
 
 
 def find_hook(g, words):
-    """(offset do bl, VA do bl, alvo atual) de Dvar_GetInt(cg_drawFPS) no SCR do port."""
+    """(offset of the bl, VA of the bl, current target) of Dvar_GetInt(cg_drawFPS) in the port's SCR."""
     refs = string_ref(g, words, "cg_drawFPS")
     globals_ = set()
     for j in refs:
@@ -143,7 +143,7 @@ def find_hook(g, words):
                         break
                 break
     if len(globals_) != 1:
-        raise SystemExit("dvar cg_drawFPS não encontrado; versão não suportada")
+        raise SystemExit("dvar cg_drawFPS not found; unsupported version")
     gv = globals_.pop()
     sites = []
     for k, (pc, off) in enumerate(words[:-2]):
@@ -156,7 +156,7 @@ def find_hook(g, words):
         if t is not None:
             sites.append((words[k + 2][1], words[k + 2][0], t))
     if len(sites) != 1:
-        raise SystemExit(f"leitura de cg_drawFPS por quadro encontrada {len(sites)} vezes; versão não suportada")
+        raise SystemExit(f"per-frame cg_drawFPS read found {len(sites)} times; unsupported version")
     return sites[0]
 
 
@@ -175,7 +175,7 @@ def main():
     _, x_off, x_va, _, x_filesz, x_memsz, x_flags, _ = struct.unpack_from("<8I", nro, ph_x)
     _, _, rw_va, _, _, rw_memsz, rw_flags, _ = struct.unpack_from("<8I", nro, ph_rw)
     if not x_flags & 1 or x_off != 0 or x_filesz != x_memsz or not rw_flags & 2:
-        raise SystemExit("segmentos do guest inesperados; versão não suportada")
+        raise SystemExit("unexpected guest segments; unsupported version")
 
     changes = patch_watchdog(nro)
 
@@ -189,14 +189,14 @@ def main():
         cave = (x_end + 15) & ~15
         end = cave + len(blob)
         if end > (x_end + 0xFFF) & ~0xFFF:
-            raise SystemExit("sem espaço livre no fim do segmento de código")
+            raise SystemExit("no free space at the end of the code segment")
         raw = start + (cave - x_va)
         if any(nro[start + (x_end - x_va):raw + len(blob)]):
-            raise SystemExit("espaço depois do segmento não está zerado; versão não suportada")
+            raise SystemExit("space after the segment is not zeroed; unsupported version")
 
         state = (rw_va + rw_memsz + 15) & ~15
         if state + STATE_SIZE > (rw_va + rw_memsz + 0xFFF) & ~0xFFF:
-            raise SystemExit("sem espaço no fim do .bss")
+            raise SystemExit("no space at the end of .bss")
 
         struct.pack_into("<8I", blob, 0, va, nx_log, callee, dvar_find, state,
                          djb2("r_vsync"), djb2("com_maxfps"), cave)
@@ -205,7 +205,7 @@ def main():
         struct.pack_into("<I", nro, ph_rw + 20, state + STATE_SIZE - rw_va)
         g.put(call_off, enc_bl(call_pc, cave + ENTRY))
         changes.append(
-            f"log de desempenho em 0x{cave:x} (estado 0x{state:x}), chamado de 0x{call_pc:x};"
+            f"performance log at 0x{cave:x} (state 0x{state:x}), called from 0x{call_pc:x};"
             f" va 0x{va:x}, nx_log 0x{nx_log:x}, Dvar_GetInt 0x{callee:x}, Dvar_FindVarByHash 0x{dvar_find:x}")
 
     write_nro(nro, src, dst, changes)

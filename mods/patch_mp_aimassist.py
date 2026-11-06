@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Aim assist do Zombies no multiplayer do BO2 Requiem NX (patch in-place do t6mp.nro).
+"""Zombies aim assist in BO2 Requiem NX multiplayer (in-place patch of t6mp.nro).
 
-1. AimAssist_IsAutoAimActive() só retorna verdadeiro com o bit SESSIONMODE_ZOMBIES
-   (0x10) ligado, e no t6mp ele nunca liga. O `tbz w3, #4` vira `nop`, liberando
-   o auto-aim do ADS no MP.
-2. aim_lockon_enabled (a mira acompanhar o alvo em movimento) é registrado com
-   padrão 0 no PC. O `mov w1, #0` do registro vira `mov w1, #1`.
-   Não dá para fazer isso por script: esses dvars não têm nome no executável de PC,
-   e setdvar/setsaveddvar ignoram dvars sem nome.
-3. AimAssist_GetAutoAimRange() devolve autoAimRange da arma * aim_autoAimRangeScale.
-   Quando isso dá 0, só o Zombies com Deadshot recebe 4096. O patch tira essas
-   condições: alcance 0 vira 4096 em qualquer modo (alcance diferente de 0 não muda).
+1. AimAssist_IsAutoAimActive() only returns true with the SESSIONMODE_ZOMBIES bit
+   (0x10) set, which never happens in t6mp. The `tbz w3, #4` becomes a `nop`,
+   enabling ADS auto-aim in MP.
+2. aim_lockon_enabled (the reticle tracking a moving target) is registered with
+   default 0 on PC. The registration's `mov w1, #0` becomes `mov w1, #1`.
+   This cannot be done from a script: these dvars have no name in the PC executable,
+   and setdvar/setsaveddvar ignore unnamed dvars.
+3. AimAssist_GetAutoAimRange() returns the weapon's autoAimRange * aim_autoAimRangeScale.
+   When that is 0, only Zombies with Deadshot gets 4096. The patch removes those
+   conditions: a range of 0 becomes 4096 in any mode (nonzero ranges are unchanged).
 
-Tudo é feito dentro do t6mp_guest.elf embutido no romfs (mesmo tamanho).
+Everything happens inside the t6mp_guest.elf embedded in the romfs (same size).
 
-Uso: python3 patch_mp_aimassist.py caminho/para/t6mp.nro [saida.nro]
-Sem [saida.nro], grava por cima e deixa um .bak do original.
+Usage: python3 patch_mp_aimassist.py path/to/t6mp.nro [output.nro]
+Without [output.nro], overwrites in place and keeps a .bak of the original.
 """
 import sys
 
@@ -28,12 +28,12 @@ MOV_W1_1 = 0x52800021  # mov w1, #1
 LOCKON = "aim_lockon_enabled"
 # AimAssist_GetAutoAimRange: ldr s31,[x2,#0x570] ... fcmp s31,s0; b.ne ... mov w0,#4096.0; fmov s0,w0
 RANGE_SIG = {0: 0xBD45705F, 3: 0x1E3F0800, 5: 0x1E2023E0, 6: 0x54000121, 32: 0x52A8B000, 33: 0x1E270000}
-RANGE_CONST_LOAD = (4, 0xBD40001F, 0x1E2703FF)  # ldr s31, [x0]  ->  fmov s31, wzr (compara com 0.0)
-RANGE_SKIP = (7, 0x90000000, 0x14000019)        # adrp x0, ...   ->  b +0x64 (direto para o 4096.0)
+RANGE_CONST_LOAD = (4, 0xBD40001F, 0x1E2703FF)  # ldr s31, [x0]  ->  fmov s31, wzr (compare with 0.0)
+RANGE_SKIP = (7, 0x90000000, 0x14000019)        # adrp x0, ...   ->  b +0x64 (straight to the 4096.0)
 
 
 def find_gate(g, words):
-    """Offsets do `tbz w3, #4` de AimAssist_IsAutoAimActive, e de um nop já aplicado."""
+    """Offsets of the `tbz w3, #4` in AimAssist_IsAutoAimActive, and of an already applied nop."""
     hits, patched = [], []
     for _, off in words[4:-3]:
         w = lambda i: g.word(off + 4 * i)
@@ -50,15 +50,15 @@ def find_gate(g, words):
 
 
 def find_range(g, words):
-    """Offset do início do trecho de AimAssist_GetAutoAimRange (original ou já patchado)."""
+    """Offset of the start of the AimAssist_GetAutoAimRange sequence (original or already patched)."""
     hits = [off for _, off in words[:-40] if all(g.word(off + 4 * i) == v for i, v in RANGE_SIG.items())]
     if len(hits) != 1:
-        raise SystemExit(f"AimAssist_GetAutoAimRange encontrado {len(hits)} vezes; versão não suportada")
+        raise SystemExit(f"AimAssist_GetAutoAimRange found {len(hits)} times; unsupported version")
     return hits[0]
 
 
 def find_bool_default(g, words, name):
-    """Offset do `mov w1, #padrão` na chamada que registra o dvar `name`."""
+    """Offset of the `mov w1, #default` in the call that registers dvar `name`."""
     targets = {(va & ~0xFFF, va & 0xFFF) for va in g.rodata_strings(name)}
     is_bl = lambda m: bl_target(words[m][0], g.word(words[m][1])) is not None
     sites = set()
@@ -76,7 +76,7 @@ def find_bool_default(g, words, name):
             call = next((m for m in range(j + 1, min(j + 40, len(words))) if is_bl(m)), None)
             if call is None:
                 break
-            # o mov w1 pode vir antes ou depois do add do nome; vale o último antes do bl
+            # the mov w1 may come before or after the name add; the last one before the bl wins
             for m in range(call - 1, max(call - 60, 0), -1):
                 if is_bl(m):
                     break
@@ -85,7 +85,7 @@ def find_bool_default(g, words, name):
                     break
             break
     if len(sites) != 1:
-        raise SystemExit(f"registro de {name} encontrado {len(sites)} vezes; versão não suportada")
+        raise SystemExit(f"registration of {name} found {len(sites)} times; unsupported version")
     return sites.pop()
 
 
@@ -103,14 +103,14 @@ def main():
     hits, patched = find_gate(g, words)
     if len(hits) == 1:
         g.put(hits[0], NOP)
-        changes.append(f"auto-aim do ADS liberado (+0x{hits[0] - start:x})")
+        changes.append(f"ADS auto-aim enabled (+0x{hits[0] - start:x})")
     elif not (patched and not hits):
-        raise SystemExit(f"assinatura do auto-aim encontrada {len(hits)} vezes (esperado 1); versão não suportada")
+        raise SystemExit(f"auto-aim signature found {len(hits)} times (expected 1); unsupported version")
 
     off = find_bool_default(g, words, LOCKON)
     if g.word(off) == MOV_W1_0:
         g.put(off, MOV_W1_1)
-        changes.append(f"{LOCKON} ligado por padrão (+0x{off - start:x})")
+        changes.append(f"{LOCKON} enabled by default (+0x{off - start:x})")
 
     base = find_range(g, words)
     for idx, orig, new in (RANGE_CONST_LOAD, RANGE_SKIP):
@@ -118,9 +118,9 @@ def main():
         if cur == new:
             continue
         if (cur if idx != RANGE_SKIP[0] else cur & 0x9F00001F) != orig:
-            raise SystemExit("AimAssist_GetAutoAimRange diferente do esperado; versão não suportada")
+            raise SystemExit("AimAssist_GetAutoAimRange differs from expected; unsupported version")
         g.put(base + 4 * idx, new)
-        changes.append(f"alcance do auto-aim: instrução +0x{base + 4 * idx - start:x}")
+        changes.append(f"auto-aim range: instruction +0x{base + 4 * idx - start:x}")
 
     write_nro(nro, src, dst, changes)
 

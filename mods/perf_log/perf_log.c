@@ -1,17 +1,17 @@
 /*
- * Log de desempenho por quadro para o t6mp_guest.elf do BO2 Requiem NX.
+ * Per-frame performance log for the BO2 Requiem NX t6mp_guest.elf.
  *
- * Fica no lugar da chamada Dvar_GetInt(cg_drawFPS) que o SCR do port faz uma vez por
- * quadro: mede o intervalo entre quadros com cntpct_el0 e devolve o valor original do
- * dvar. A cada 10 s grava uma linha de resumo no t6mp.log; quadros de 50 ms ou mais
- * também geram uma linha própria (no máximo 4 por janela).
+ * Replaces the Dvar_GetInt(cg_drawFPS) call that the port's SCR makes once per
+ * frame: it measures the frame interval with cntpct_el0 and returns the dvar's
+ * original value. Every 10 s it writes a summary line to t6mp.log; frames of 50 ms
+ * or more also get a line of their own (at most 4 per window).
  *
- * O código é independente de posição (-mcmodel=tiny): o patcher copia o blob para
- * qualquer endereço e preenche a tabela `perf_tbl` com os VAs desta versão. O host
- * carrega o guest (PIE) com deslocamento, então os VAs da tabela são corrigidos em
- * tempo de execução pela diferença entre o endereço real da tabela e `self`.
- * Os ponteiros do guest são de 32 bits, mas o código é LP64: endereços abaixo de 4 GB
- * em registradores x funcionam igual.
+ * The code is position-independent (-mcmodel=tiny): the patcher copies the blob to
+ * any address and fills the `perf_tbl` table with this build's VAs. The host loads
+ * the guest (PIE) at an offset, so the table VAs are fixed up at run time by the
+ * difference between the table's real address and `self`.
+ * Guest pointers are 32-bit but the code is LP64: addresses below 4 GB work the
+ * same in x registers.
  */
 #include <stdint.h>
 
@@ -20,31 +20,31 @@ typedef uint64_t u64;
 
 struct perf_tbl {
     u32 va;          /* char *va(const char *fmt, ...) */
-    u32 nx_log;      /* void nx_log(const char *line): uma linha no t6mp.log */
-    u32 dvar_get;    /* int Dvar_GetInt(dvar_t *): a chamada original */
+    u32 nx_log;      /* void nx_log(const char *line): one line in t6mp.log */
+    u32 dvar_get;    /* int Dvar_GetInt(dvar_t *): the original call */
     u32 dvar_find;   /* dvar_t *Dvar_FindVarByHash(u32) */
-    u32 state;       /* 64 bytes de .bss livres */
-    u32 h_vsync;     /* hash de r_vsync */
-    u32 h_maxfps;    /* hash de com_maxfps */
-    u32 self;        /* VA da própria tabela no ELF */
+    u32 state;       /* 64 free bytes of .bss */
+    u32 h_vsync;     /* hash of r_vsync */
+    u32 h_maxfps;    /* hash of com_maxfps */
+    u32 self;        /* VA of this table in the ELF */
 };
 
 struct perf_state {
-    u64 last;        /* cntpct do quadro anterior */
+    u64 last;        /* cntpct of the previous frame */
     u64 win_start;
     u64 sum_us;
     u32 max_us;
     u32 frames;
     u32 c20, c34, c50, c100;
-    u32 logged;      /* linhas de hitch nesta janela */
-    u32 log_us;      /* pior custo de uma escrita no log na janela anterior */
+    u32 logged;      /* hitch lines in this window */
+    u32 log_us;      /* worst cost of one log write in the previous window */
     u32 inited;
 };
 
 __attribute__((section(".text.tbl"), used)) volatile struct perf_tbl perf_tbl;
 
 #define T ((const volatile struct perf_tbl *)&perf_tbl)
-/* deslocamento de carga do guest: endereço real da tabela menos o VA gravado pelo patcher */
+/* guest load offset: real table address minus the VA written by the patcher */
 #define BASE ((u32)((uintptr_t)&perf_tbl - T->self))
 #define S ((volatile struct perf_state *)(uintptr_t)(u32)(T->state + BASE))
 #define FN(type, field) ((type)(uintptr_t)(u32)(T->field + BASE))
@@ -61,7 +61,7 @@ static inline u64 ticks(void)
     return t;
 }
 
-/* 19,2 MHz: us = ticks * 5 / 96; ms do mesmo relógio das linhas "[load] %u ms" */
+/* 19.2 MHz: us = ticks * 5 / 96; ms from the same clock as the "[load] %u ms" lines */
 static inline u32 to_us(u64 t) { return (u32)(t * 5 / 96); }
 static inline u32 to_ms(u64 t) { return (u32)(t / 19200); }
 
@@ -105,7 +105,7 @@ __attribute__((section(".text.entry"))) int perf_frame(u32 dvar)
     int wrote = 0;
     if (dt >= 50000 && s->logged < 4) {
         s->logged++;
-        log_line(FN(va_fn, va)("[perf] hitch %u ms em t=%u ms", dt / 1000, to_ms(now)));
+        log_line(FN(va_fn, va)("[perf] hitch %u ms at t=%u ms", dt / 1000, to_ms(now)));
         wrote = 1;
     }
 
@@ -115,7 +115,7 @@ __attribute__((section(".text.entry"))) int perf_frame(u32 dvar)
         u32 prev_log = s->log_us;
         s->log_us = 0;
         log_line(FN(va_fn, va)(
-            "[perf] t=%u ms: %u quadros, media %u.%02u ms, max %u.%u ms, >=20ms %u, >=34ms %u, "
+            "[perf] t=%u ms: %u frames, avg %u.%02u ms, max %u.%u ms, >=20ms %u, >=34ms %u, "
             ">=50ms %u, >=100ms %u, vsync %d, maxfps %d, log %u us",
             to_ms(now), n, avg / 1000, (avg % 1000) / 10, s->max_us / 1000, (s->max_us % 1000) / 100,
             s->c20, s->c34, s->c50, s->c100, dvar_int(T->h_vsync), dvar_int(T->h_maxfps), prev_log));
@@ -128,7 +128,7 @@ __attribute__((section(".text.entry"))) int perf_frame(u32 dvar)
         wrote = 1;
     }
 
-    /* o tempo gasto escrevendo no log não entra no próximo quadro */
+    /* time spent writing the log does not count toward the next frame */
     s->last = wrote ? ticks() : now;
     return FN(get_fn, dvar_get)(dvar);
 }
