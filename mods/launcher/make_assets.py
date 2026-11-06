@@ -6,6 +6,8 @@
   romfs/title.ttf    font for titles and menu items (DIN Condensed Bold on macOS)
   romfs/text.ttf     font for smaller text (Avenir Next Condensed on macOS; a .ttc works)
   romfs/text.idx     indices of the regular and bold faces inside text.ttf
+  romfs/nav.pcm      navigation sound: the original UInavigate.mp3 as 48 kHz 16-bit stereo PCM
+                     (needs ffmpeg or macOS afconvert; skipped with a warning without them)
   icon.jpg           icon of the original NRO
 
 None of this goes into the repository: the background and icon belong to the port, and
@@ -16,8 +18,12 @@ Usage: python3 make_assets.py path/to/t6game.nro output_dir
 """
 import io
 import os
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
+import wave
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -31,7 +37,7 @@ TEXT_FONT_BOLD_INDEX = int(os.environ.get("LAUNCHER_TEXT_FONT_BOLD_INDEX", "0"))
 
 
 def nro_assets(path):
-    """(JPEG icon, launcherBG.png) from the original NRO."""
+    """(JPEG icon, launcherBG.png, UInavigate.mp3 or None) from the original NRO."""
     nro = open(path, "rb").read()
     if nro[0x10:0x14] != b"NRO0":
         raise SystemExit("not an NRO")
@@ -50,7 +56,25 @@ def nro_assets(path):
         pos += 32 + ((nlen + 3) & ~3)
     if "launcherBG.png" not in files:
         raise SystemExit("launcherBG.png is not in the romfs; this does not look like the original t6game.nro")
-    return nro[aset + icon_off:aset + icon_off + icon_size], files["launcherBG.png"]
+    return nro[aset + icon_off:aset + icon_off + icon_size], files["launcherBG.png"], files.get("UInavigate.mp3")
+
+
+def pcm_48k_stereo(mp3):
+    """Raw 48 kHz s16le stereo PCM (what audout plays), or None without a converter."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = os.path.join(tmp, "in.mp3"), os.path.join(tmp, "out.wav")
+        open(src, "wb").write(mp3)
+        if shutil.which("ffmpeg"):
+            cmd = ["ffmpeg", "-loglevel", "error", "-i", src, "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", dst]
+        elif shutil.which("afconvert"):
+            cmd = ["afconvert", "-f", "WAVE", "-d", "LEI16@48000", "-c", "2", src, dst]
+        else:
+            return None
+        subprocess.run(cmd, check=True)
+        with wave.open(dst) as w:
+            if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (48000, 2, 2):
+                raise SystemExit("unexpected format from the audio converter")
+            return w.readframes(w.getnframes())
 
 
 def spaced(draw, xy, text, fnt, fill, spacing):
@@ -99,7 +123,7 @@ def make_background(orig):
 def main():
     if len(sys.argv) != 3:
         raise SystemExit(__doc__)
-    icon, bg = nro_assets(sys.argv[1])
+    icon, bg, nav = nro_assets(sys.argv[1])
     out = sys.argv[2]
     os.makedirs(os.path.join(out, "romfs"), exist_ok=True)
     make_background(Image.open(io.BytesIO(bg))).save(os.path.join(out, "romfs", "bg.png"), optimize=True)
@@ -107,6 +131,11 @@ def main():
     open(os.path.join(out, "romfs", "title.ttf"), "wb").write(open(TITLE_FONT, "rb").read())
     open(os.path.join(out, "romfs", "text.ttf"), "wb").write(open(TEXT_FONT, "rb").read())
     open(os.path.join(out, "romfs", "text.idx"), "w").write(f"{TEXT_FONT_INDEX} {TEXT_FONT_BOLD_INDEX}\n")
+    pcm = pcm_48k_stereo(nav) if nav else None
+    if pcm:
+        open(os.path.join(out, "romfs", "nav.pcm"), "wb").write(pcm)
+    else:
+        print("warning: no navigation sound (UInavigate.mp3 missing, or neither ffmpeg nor afconvert found)")
     print(f"assets in {out}")
 
 

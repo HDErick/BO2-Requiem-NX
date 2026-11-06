@@ -16,6 +16,8 @@ static const char *const NRO_NAME[GAME_COUNT] = {"t6mp.nro", "t6zm.nro"};
 #define GATE_GSC "aim_assist_bots_only.gsc"
 #define CHUNK (1 << 20)
 
+volatile int mods_cancel;
+
 /* ------------------------------------------------------------------ files */
 
 static uint8_t *load(const char *path, size_t *len)
@@ -28,7 +30,7 @@ static uint8_t *load(const char *path, size_t *len)
     fseek(f, 0, SEEK_SET);
     uint8_t *buf = n > 0 ? malloc(n) : NULL;
     size_t got = 0;
-    while (buf && got < (size_t)n) {
+    while (buf && got < (size_t)n && !mods_cancel) {
         size_t r = fread(buf + got, 1, (size_t)n - got < CHUNK ? (size_t)n - got : CHUNK, f);
         if (!r)
             break;
@@ -91,6 +93,32 @@ static int save_file(const char *path, const uint8_t *data, size_t len)
 static void nro_path(char *out, size_t len, int game, const char *suffix)
 {
     snprintf(out, len, GAME_DIR "/%s%s", NRO_NAME[game], suffix);
+}
+
+int mods_game_version(char *out, size_t len)
+{
+    /* display version of the NACP in the NRO's ASET section */
+    for (int g = 0; g < GAME_COUNT; g++) {
+        char path[300];
+        nro_path(path, sizeof path, g, "");
+        FILE *f = fopen(path, "rb");
+        if (!f)
+            continue;
+        uint8_t hdr[0x20], aset[0x38], ver[0x10];
+        int ok = fread(hdr, 1, sizeof hdr, f) == sizeof hdr && !memcmp(hdr + 0x10, "NRO0", 4);
+        uint32_t asoff = ok ? (uint32_t)(hdr[0x18] | hdr[0x19] << 8 | hdr[0x1A] << 16 | (uint32_t)hdr[0x1B] << 24) : 0;
+        ok = ok && !fseek(f, asoff, SEEK_SET) && fread(aset, 1, sizeof aset, f) == sizeof aset && !memcmp(aset, "ASET", 4);
+        uint64_t nacp = 0;
+        for (int i = 7; ok && i >= 0; i--)
+            nacp = nacp << 8 | aset[0x18 + i];
+        ok = ok && !fseek(f, (long)(asoff + nacp + 0x3060), SEEK_SET) && fread(ver, 1, sizeof ver, f) == sizeof ver;
+        fclose(f);
+        if (ok && ver[0]) {
+            snprintf(out, len, "%.*s", (int)sizeof ver, (const char *)ver);
+            return 0;
+        }
+    }
+    return -1;
 }
 
 /* ------------------------------------------------------------------ load */
@@ -185,6 +213,22 @@ int mods_dirty(const ModGame games[GAME_COUNT])
         if (game_dirty(&games[g]))
             return 1;
     return 0;
+}
+
+const char *mods_summary(const ModGame games[GAME_COUNT], char *buf, size_t len)
+{
+    static const struct { int game, mod; StrId name; } APPLIED[] = {
+        {GAME_MP, MOD_AIM_ASSIST, STR_SHORT_AIM_ASSIST}, {GAME_MP, MOD_FPS_COUNTER, STR_SHORT_FPS_MP},
+        {GAME_ZM, MOD_FPS_COUNTER, STR_SHORT_FPS_ZM},    {GAME_MP, MOD_PERF_LOG, STR_SHORT_PERF_LOG},
+    };
+    size_t n = 0;
+    buf[0] = 0;
+    for (size_t i = 0; i < sizeof APPLIED / sizeof APPLIED[0]; i++)
+        if (games[APPLIED[i].game].state[APPLIED[i].mod] == MOD_ON)
+            n += snprintf(buf + n, n < len ? len - n : 0, "%s%s", n ? ", " : "", tr(APPLIED[i].name));
+    if (games[GAME_MP].state[MOD_LOG_NOFSYNC] == MOD_ON || games[GAME_ZM].state[MOD_LOG_NOFSYNC] == MOD_ON)
+        n += snprintf(buf + n, n < len ? len - n : 0, "%s%s", n ? ", " : "", tr(STR_SHORT_LOG_NOFSYNC));
+    return buf;
 }
 
 /* ------------------------------------------------------------------ save */

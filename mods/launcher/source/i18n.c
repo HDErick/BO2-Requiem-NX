@@ -67,6 +67,13 @@ static const char *const STR_EN[STR_COUNT] = {
     [STR_MOD_PERF_LOG_DESC] = "Writes frame time stats to t6mp.log every 10 s and reports freezes from 1 s ([nx-stall]).",
     [STR_MOD_LOG_NOFSYNC] = "Log without fsync",
     [STR_MOD_LOG_NOFSYNC_DESC] = "Stops forcing each t6mp.log/t6zm.log line onto the SD card (about 17 ms each, a visible hitch).",
+    [STR_SHORT_AIM_ASSIST] = "aim assist",
+    [STR_SHORT_FPS_MP] = "FPS (MP)",
+    [STR_SHORT_FPS_ZM] = "FPS (ZM)",
+    [STR_SHORT_PERF_LOG] = "perf log",
+    [STR_SHORT_LOG_NOFSYNC] = "no fsync",
+    [STR_FOOTER_MODS_FMT] = "MODS: %s",
+    [STR_FOOTER_NO_MODS] = "NO MODS",
 };
 
 static const char *const STR_PT_BR[STR_COUNT] = {
@@ -132,6 +139,13 @@ static const char *const STR_PT_BR[STR_COUNT] = {
     [STR_MOD_PERF_LOG_DESC] = "Grava estatísticas de frametime no t6mp.log a cada 10 s e registra travadas a partir de 1 s ([nx-stall]).",
     [STR_MOD_LOG_NOFSYNC] = "Log sem fsync",
     [STR_MOD_LOG_NOFSYNC_DESC] = "Para de forçar a gravação de cada linha do t6mp.log/t6zm.log no SD (uns 17 ms cada, um engasgo visível).",
+    [STR_SHORT_AIM_ASSIST] = "mira assistida",
+    [STR_SHORT_FPS_MP] = "FPS (MP)",
+    [STR_SHORT_FPS_ZM] = "FPS (ZM)",
+    [STR_SHORT_PERF_LOG] = "log de desempenho",
+    [STR_SHORT_LOG_NOFSYNC] = "sem fsync",
+    [STR_FOOTER_MODS_FMT] = "MODS: %s",
+    [STR_FOOTER_NO_MODS] = "SEM MODS",
 };
 
 static const char *const *const TABLES[LANG_COUNT] = {[LANG_EN] = STR_EN, [LANG_PT_BR] = STR_PT_BR};

@@ -22,8 +22,17 @@ typedef struct {
 
 enum { MROW_AIM_ASSIST, MROW_FPS_MP, MROW_FPS_ZM, MROW_PERF_LOG, MROW_LOG_NOFSYNC, MROW_COUNT };
 
-/* Reads both NROs (tens of MB each: a few seconds) and detects the applied mods. */
+/* Reads both NROs (tens of MB each: a few seconds) and detects the applied mods.
+ * Safe to run on a background thread; setting mods_cancel makes it stop early (the
+ * results are then incomplete). */
 void mods_load(ModGame games[GAME_COUNT]);
+extern volatile int mods_cancel;
+
+/* Display version from the NACP of t6mp.nro (or t6zm.nro), e.g. "0.3.2". */
+int mods_game_version(char *buf, size_t len);
+
+/* Comma-separated short names of the applied mods ("" if none). */
+const char *mods_summary(const ModGame games[GAME_COUNT], char *buf, size_t len);
 
 /* Rows for the screen: value 1 = on. Call after i18n_init. */
 void mods_rows(const ModGame games[GAME_COUNT], Option rows[MROW_COUNT]);

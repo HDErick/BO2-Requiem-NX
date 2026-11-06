@@ -25,6 +25,7 @@
 #include "i18n.h"
 #include "mods.h"
 #include "settings.h"
+#include "sound.h"
 
 #define W 1280
 #define H 720
@@ -36,14 +37,16 @@
 #define VALUE_X 600     /* right edge of the values on the settings screen */
 #define DESC_Y 596
 #define HINT_Y 672
+#define FADE_FRAMES 8   /* cross-fade between screens */
 
 typedef struct { u8 r, g, b, a; } Color;
 static const Color WHITE = {242, 242, 242, 255}, GRAY = {150, 150, 150, 255}, DIM = {98, 98, 98, 255},
                    ORANGE = {255, 122, 0, 255}, HINT = {190, 190, 190, 255}, BLACK_SHADOW = {0, 0, 0, 150};
 
-static u32 *fbuf;           /* current framebuffer */
+static u32 *fbuf;           /* where drawing goes (the canvas) */
 static u32 fstride;         /* in pixels */
 static u32 *bg;             /* background, already converted */
+static u32 *canvas, *prev_frame;
 
 /* ------------------------------------------------------------------ drawing */
 
@@ -259,7 +262,29 @@ typedef struct {
     int busy;
     int app_mode;
     char launch[256];
+    char version[24];       /* game version from the NACP, "" if unknown */
 } State;
+
+/* the mods state is read on a background thread at startup (it reads tens of MB) */
+static Thread mods_thread;
+static int mods_thread_on;
+static int mods_ready;
+
+static void mods_worker(void *arg)
+{
+    mods_load(((State *)arg)->games);
+    if (!mods_cancel)
+        __atomic_store_n(&mods_ready, 1, __ATOMIC_RELEASE);
+}
+
+static void mods_join(void)
+{
+    if (mods_thread_on) {
+        threadWaitForExit(&mods_thread);
+        threadClose(&mods_thread);
+        mods_thread_on = 0;
+    }
+}
 
 static Framebuffer fb;
 
@@ -308,6 +333,20 @@ static void draw_main(const State *s)
     hint(&x, "A", 0, tr(STR_HINT_OPEN));
     hint(&x, NULL, 1, tr(STR_HINT_NAVIGATE));
     hint(&x, "+", 0, tr(STR_HINT_EXIT));
+
+    /* footer: game version and the mods applied to it */
+    char foot[320], list[224], mods[260];
+    int n = snprintf(foot, sizeof foot, "REQUIEM NX %s", s->version);
+    if (__atomic_load_n(&mods_ready, __ATOMIC_ACQUIRE)) {
+        mods_summary(s->games, list, sizeof list);
+        if (list[0])
+            snprintf(mods, sizeof mods, tr(STR_FOOTER_MODS_FMT), list);
+        else
+            snprintf(mods, sizeof mods, "%s", tr(STR_FOOTER_NO_MODS));
+        snprintf(foot + n, sizeof foot - n, "   ·   %s", mods);
+    }
+    float fw = text_width(&f_bold, 15, foot, 1);
+    draw_text(&f_bold, 15, W - 40 - fw, HINT_Y + 6, foot, GRAY, 1);
 }
 
 static void draw_options(const State *s, StrId title, const Option *opts, int count, int cur, StrId back)
@@ -343,18 +382,45 @@ static void draw_options(const State *s, StrId title, const Option *opts, int co
     hint(&x, "B", 0, tr(back));
 }
 
+static inline u32 mix(u32 a, u32 b, u32 t)
+{
+    u32 rb = ((a & 0xFF00FF) * t + (b & 0xFF00FF) * (256 - t)) >> 8;
+    u32 g = ((a & 0x00FF00) * t + (b & 0x00FF00) * (256 - t)) >> 8;
+    return (rb & 0xFF00FF) | (g & 0x00FF00) | 0xFF000000u;
+}
+
 static void render(const State *s)
 {
-    fbuf = framebufferBegin(&fb, &fstride);
-    fstride /= 4;
-    for (int y = 0; y < H; y++)
-        memcpy(&fbuf[y * fstride], &bg[y * W], W * 4);
+    static int last_screen = -1, fade;
+    if (last_screen >= 0 && s->screen != last_screen) {
+        memcpy(prev_frame, canvas, W * H * 4);
+        fade = FADE_FRAMES;
+    }
+    last_screen = s->screen;
+
+    fbuf = canvas;
+    fstride = W;
+    memcpy(canvas, bg, W * H * 4);
     if (s->screen == SCREEN_SETTINGS)
         draw_options(s, STR_TITLE_SETTINGS, s->opts, OPT_COUNT, s->set_sel, STR_HINT_SAVE_BACK);
     else if (s->screen == SCREEN_MODS)
         draw_options(s, STR_TITLE_MODS, s->mrows, MROW_COUNT, s->mod_sel, STR_HINT_APPLY_BACK);
     else
         draw_main(s);
+
+    u32 stride;
+    u32 *out = framebufferBegin(&fb, &stride);
+    stride /= 4;
+    if (fade > 0) {
+        u32 t = 256 * (FADE_FRAMES - fade + 1) / (FADE_FRAMES + 1);
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                out[y * stride + x] = mix(canvas[y * W + x], prev_frame[y * W + x], t);
+        fade--;
+    } else {
+        for (int y = 0; y < H; y++)
+            memcpy(&out[y * stride], &canvas[y * W], W * 4);
+    }
     framebufferEnd(&fb);
 }
 
@@ -411,10 +477,19 @@ static int activate(State *s, int item)
         return 0;
     }
     if (item == ITEM_MODS) {
-        busy(s, STR_MODS_READING);
-        mods_load(s->games);
+        if (!__atomic_load_n(&mods_ready, __ATOMIC_ACQUIRE)) {
+            busy(s, STR_MODS_READING);
+            mods_join();
+            if (!__atomic_load_n(&mods_ready, __ATOMIC_ACQUIRE)) {
+                mods_load(s->games);
+                __atomic_store_n(&mods_ready, 1, __ATOMIC_RELEASE);
+            }
+            idle(s);
+        }
+        /* the screen starts from what is applied now */
+        for (int g = 0; g < GAME_COUNT; g++)
+            memcpy(s->games[g].want, s->games[g].state, sizeof s->games[g].want);
         mods_rows(s->games, s->mrows);
-        idle(s);
         s->screen = SCREEN_MODS;
         return 0;
     }
@@ -456,10 +531,13 @@ int main(int argc, char **argv)
     (void)argc; (void)argv;
     i18n_init();
     romfsInit();
+    sound_init();
 
     int ww, hh, n;
     u8 *img = stbi_load("romfs:/bg.png", &ww, &hh, &n, 4);
     bg = malloc(W * H * 4);
+    canvas = malloc(W * H * 4);
+    prev_frame = malloc(W * H * 4);
     for (int i = 0; i < W * H; i++)
         bg[i] = img && ww == W && hh == H
               ? img[i * 4] | img[i * 4 + 1] << 8 | img[i * 4 + 2] << 16 | 0xff000000u
@@ -504,6 +582,13 @@ int main(int argc, char **argv)
     s.app_mode = at == AppletType_Application || at == AppletType_SystemApplication;
     settings_load(s.opts);
     s.sel = nro_exists("t6mp.nro") ? ITEM_MP : ITEM_ZM;
+    if (mods_game_version(s.version, sizeof s.version))
+        s.version[0] = 0;
+    mods_thread_on = R_SUCCEEDED(threadCreate(&mods_thread, mods_worker, &s, NULL, 0x10000, 0x3B, -2));
+    if (mods_thread_on && R_FAILED(threadStart(&mods_thread))) {
+        threadClose(&mods_thread);
+        mods_thread_on = 0;
+    }
 
     int prev_touch = 0, quit = 0;
     while (!quit && appletMainLoop()) {
@@ -516,6 +601,7 @@ int main(int argc, char **argv)
         int tx = touch ? ts.touches[0].x : 0, ty = touch ? ts.touches[0].y : 0;
         prev_touch = touch;
 
+        int prev_screen = s.screen, prev_sel = s.sel, prev_set = s.set_sel, prev_mod = s.mod_sel;
         if (s.screen == SCREEN_MAIN) {
             if (down & HidNpadButton_Plus)
                 break;
@@ -568,13 +654,19 @@ int main(int argc, char **argv)
                 else
                     s.dirty = 1;
                 s.message[0] = 0;
+                sound_play();
             }
         }
+        if (s.screen != prev_screen || s.sel != prev_sel || s.set_sel != prev_set || s.mod_sel != prev_mod)
+            sound_play();
 
         render(&s);
     }
 
+    mods_cancel = 1;
+    mods_join();
     save(&s);
+    sound_exit();
     framebufferClose(&fb);
     romfsExit();
     return 0;
