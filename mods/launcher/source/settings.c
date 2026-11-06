@@ -140,13 +140,14 @@ void settings_load(Option *o)
     ONOFF[1] = tr(STR_ON);
     LATENCY_NAMES[0] = tr(STR_LATENCY_1);
 
-    o[OPT_HUD] = (Option){tr(STR_OPT_HUD), tr(STR_OPT_HUD_DESC), HUD_NAMES, N(HUD_NAMES), 0, 1};
-    o[OPT_FPS_COUNTER] = (Option){tr(STR_OPT_FPS_COUNTER), tr(STR_OPT_FPS_COUNTER_DESC), ONOFF, 2, 1, 1};
-    o[OPT_VSYNC] = (Option){tr(STR_OPT_VSYNC), tr(STR_OPT_VSYNC_DESC), ONOFF, 2, 1, 1};
-    o[OPT_MAX_FPS] = (Option){tr(STR_OPT_MAX_FPS), tr(STR_OPT_MAX_FPS_DESC), MAX_FPS_NAMES, N(MAX_FPS_NAMES), 1, 1};
-    o[OPT_LATENCY] = (Option){tr(STR_OPT_LATENCY), tr(STR_OPT_LATENCY_DESC), LATENCY_NAMES, N(LATENCY_NAMES), 0, 1};
-    o[OPT_FOV] = (Option){tr(STR_OPT_FOV), tr(STR_OPT_FOV_DESC), FOV_NAMES, N(FOV_NAMES), 0, 1};
-    o[OPT_PARTY_BOTS] = (Option){tr(STR_OPT_PARTY_BOTS), tr(STR_OPT_PARTY_BOTS_DESC), BOTS_NAMES, N(BOTS_NAMES), 1, 1};
+    o[OPT_HUD] = (Option){tr(STR_OPT_HUD), tr(STR_OPT_HUD_DESC), HUD_NAMES, N(HUD_NAMES), 0, 1, NULL};
+    o[OPT_FPS_COUNTER] = (Option){tr(STR_OPT_FPS_COUNTER), tr(STR_OPT_FPS_COUNTER_DESC), ONOFF, 2, 1, 1, NULL};
+    o[OPT_VSYNC] = (Option){tr(STR_OPT_VSYNC), tr(STR_OPT_VSYNC_DESC), ONOFF, 2, 1, 1, NULL};
+    o[OPT_MAX_FPS] = (Option){tr(STR_OPT_MAX_FPS), tr(STR_OPT_MAX_FPS_DESC), MAX_FPS_NAMES, N(MAX_FPS_NAMES), 1, 1, NULL};
+    o[OPT_LATENCY] = (Option){tr(STR_OPT_LATENCY), tr(STR_OPT_LATENCY_DESC), LATENCY_NAMES, N(LATENCY_NAMES), 0, 1, NULL};
+    o[OPT_FOV] = (Option){tr(STR_OPT_FOV), tr(STR_OPT_FOV_DESC), FOV_NAMES, N(FOV_NAMES), 0, 1, NULL};
+    o[OPT_PARTY_BOTS] = (Option){tr(STR_OPT_PARTY_BOTS), tr(STR_OPT_PARTY_BOTS_DESC), BOTS_NAMES, N(BOTS_NAMES), 1, 1,
+                                 tr(STR_OPT_FILE_MISSING)};
 
     char v[64];
     char *cfg = read_file(CFG_MP, NULL);

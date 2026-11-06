@@ -22,7 +22,8 @@ typedef struct {
     const char *const *names;
     int count;
     int value;       /* index into names */
-    int available;   /* 0: the file that stores this option does not exist */
+    int available;   /* 0: the option cannot be changed (see missing) */
+    const char *missing; /* shown instead of desc when not available */
 } Option;
 
 /* Reads current values from players/config_*.cfg, dxvk-sarek.conf and scripts/mp/party_bots.gsc.

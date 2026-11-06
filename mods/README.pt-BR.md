@@ -20,14 +20,14 @@ O puxão da mira só funciona em partidas contra bots: copie também `sd/switch/
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` libera bots em Gun Game, One in the Chamber, Sticks & Stones e Sharpshooter. O botão "Setup Bots" continua desativado nesses modos: configure quantidade e dificuldade num modo normal antes de trocar. Se a quantidade estiver em 0, entram 5 bots (`party_bots_default_count()`).
 
-## Launcher novo com configurações (t6game.nro)
+## Launcher novo com configurações e mods (t6game.nro)
 
 ```
 pip install pillow
 launcher/build.sh /caminho/para/t6game.nro.original t6game.nro
 ```
 
-Substitui o launcher do Requiem por um próprio (libnx, `launcher/source`), com o mesmo visual do fundo original e as opções Multijogador, Zumbis, Configurações e Atualizações. Os textos seguem o idioma do console: português quando o sistema está em português, inglês nos demais casos. Compila no container `devkitpro/devkita64` (docker). Os assets (fundo, ícone, fontes) são gerados por `launcher/make_assets.py` a partir do NRO original e das fontes DIN Condensed Bold / Avenir Next Condensed do macOS; em outro sistema, use `LAUNCHER_TITLE_FONT`, `LAUNCHER_TEXT_FONT` e os índices das faces.
+Substitui o launcher do Requiem por um próprio (libnx, `launcher/source`), com o mesmo visual do fundo original e as opções Multijogador, Zumbis, Configurações, Mods e Atualizações. Os textos seguem o idioma do console: português quando o sistema está em português, inglês nos demais casos. Compila no container `devkitpro/devkita64` (docker). Os assets (fundo, ícone, fontes) são gerados por `launcher/make_assets.py` a partir do NRO original e das fontes DIN Condensed Bold / Avenir Next Condensed do macOS; em outro sistema, use `LAUNCHER_TITLE_FONT`, `LAUNCHER_TEXT_FONT` e os índices das faces.
 
 No SD, renomeie o launcher original para `t6game_orig.nro`: o item **Atualizações** abre ele, que é quem busca e instala versões novas (e pode trocar o `t6game.nro` de volta pelo oficial).
 
@@ -44,6 +44,8 @@ Em **Configurações**:
 | Bots nos modos Party | `return N;` de `party_bots_default_count()` em `scripts/mp/party_bots.gsc` |
 
 Com o HUD desligado e 1 quadro adiantado, o `dxvk-sarek.conf` é apagado: sem ele o port já força frame latency 1. Com o arquivo presente, o port deixa de forçar, por isso o launcher sempre grava a latência junto.
+
+Em **Mods** dá para ligar e desligar, sem PC, os patches deste README: mira assistida contra bots, contador de FPS (MP e Zumbis), log de desempenho e log sem fsync. A tela lê o `t6mp.nro` e o `t6zm.nro` e mostra o que já está aplicado; ao voltar com B, cada NRO alterado é refeito a partir do original (`t6mp.nro.bak` / `t6zm.nro.bak`, criado na primeira vez), então desligar um mod volta os bytes originais. Depois de uma atualização do jogo, o NRO novo (sem mods) vira o novo `.bak` e basta ligar os mods de novo. Ligar a mira assistida também instala o `scripts/mp/aim_assist_bots_only.gsc`. O código é `launcher/source/nro_patch.c`, que faz os mesmos patches dos scripts Python e gera os mesmos bytes (o `perf_log.bin`, o `aim_gate.bin` e o `.gsc` vão no romfs do launcher). Cada aplicação lê e grava dezenas de MB no SD e leva alguns segundos; o SD precisa de espaço para uma cópia temporária do NRO.
 
 ## Contador de FPS com frametime
 

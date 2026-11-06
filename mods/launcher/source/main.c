@@ -1,10 +1,11 @@
 /*
- * BO2 Requiem NX launcher with a settings screen.
+ * BO2 Requiem NX launcher with settings and mods screens.
  *
  * Draws into a 1280x720 software framebuffer (RGBA8888) over the romfs:/bg.png
  * background, with text via stb_truetype. Picks Multiplayer/Zombies (envSetNextLoad
- * of t6mp/t6zm.nro), opens the settings (settings.c) or the original launcher
- * (t6game_orig.nro), which is the one that fetches updates.
+ * of t6mp/t6zm.nro), opens the settings (settings.c), the mods (mods.c: binary patches
+ * of t6mp/t6zm.nro) or the original launcher (t6game_orig.nro), which is the one that
+ * fetches updates.
  */
 #include <math.h>
 #include <stdarg.h>
@@ -22,6 +23,7 @@
 #include "stb_image.h"
 
 #include "i18n.h"
+#include "mods.h"
 #include "settings.h"
 
 #define W 1280
@@ -237,22 +239,29 @@ static int load_font(Font *f, const char *path, int index)
 
 /* ------------------------------------------------------------------ screens */
 
-enum { SCREEN_MAIN, SCREEN_SETTINGS };
-enum { ITEM_MP, ITEM_ZM, ITEM_SETTINGS, ITEM_UPDATES, ITEM_COUNT };
+enum { SCREEN_MAIN, SCREEN_SETTINGS, SCREEN_MODS };
+enum { ITEM_MP, ITEM_ZM, ITEM_SETTINGS, ITEM_MODS, ITEM_UPDATES, ITEM_COUNT };
 
-static const StrId ITEM_LABEL[ITEM_COUNT] = {STR_ITEM_MP, STR_ITEM_ZM, STR_ITEM_SETTINGS, STR_ITEM_UPDATES};
-static const StrId ITEM_DESC[ITEM_COUNT] = {STR_DESC_MP, STR_DESC_ZM, STR_DESC_SETTINGS, STR_DESC_UPDATES};
-static const char *const ITEM_NRO[ITEM_COUNT] = {"t6mp.nro", "t6zm.nro", NULL, "t6game_orig.nro"};
+static const StrId ITEM_LABEL[ITEM_COUNT] = {STR_ITEM_MP, STR_ITEM_ZM, STR_ITEM_SETTINGS, STR_ITEM_MODS,
+                                             STR_ITEM_UPDATES};
+static const StrId ITEM_DESC[ITEM_COUNT] = {STR_DESC_MP, STR_DESC_ZM, STR_DESC_SETTINGS, STR_DESC_MODS,
+                                            STR_DESC_UPDATES};
+static const char *const ITEM_NRO[ITEM_COUNT] = {"t6mp.nro", "t6zm.nro", NULL, NULL, "t6game_orig.nro"};
 
 typedef struct {
     int screen;
-    int sel, set_sel;
+    int sel, set_sel, mod_sel;
     Option opts[OPT_COUNT];
     int dirty;
-    char message[256];      /* warning shown in place of the description */
+    ModGame games[GAME_COUNT];
+    Option mrows[MROW_COUNT];
+    char message[256];      /* shown in place of the description: a warning, or progress if busy */
+    int busy;
     int app_mode;
     char launch[256];
 } State;
+
+static Framebuffer fb;
 
 static int nro_exists(const char *name)
 {
@@ -293,7 +302,7 @@ static void draw_main(const State *s)
         fill_rect(X0, y + 39, 440, 1, (Color){255, 255, 255, 22});
     }
     const char *desc = s->message[0] ? s->message : tr(ITEM_DESC[s->sel]);
-    draw_wrapped(&f_text, 19, X0, DESC_Y, 520, 24, desc, s->message[0] ? ORANGE : GRAY);
+    draw_wrapped(&f_text, 19, X0, DESC_Y, 520, 24, desc, !s->message[0] ? GRAY : s->busy ? WHITE : ORANGE);
 
     float x = X0 + 40;
     hint(&x, "A", 0, tr(STR_HINT_OPEN));
@@ -301,13 +310,13 @@ static void draw_main(const State *s)
     hint(&x, "+", 0, tr(STR_HINT_EXIT));
 }
 
-static void draw_settings(const State *s)
+static void draw_options(const State *s, StrId title, const Option *opts, int count, int cur, StrId back)
 {
-    draw_text(&f_text, 16, X0, SET_Y - 26, tr(STR_TITLE_SETTINGS), GRAY, 4);
-    for (int i = 0; i < OPT_COUNT; i++) {
-        const Option *o = &s->opts[i];
+    draw_text(&f_text, 16, X0, SET_Y - 26, tr(title), GRAY, 4);
+    for (int i = 0; i < count; i++) {
+        const Option *o = &opts[i];
         int y = SET_Y + i * SET_STEP;
-        int sel = i == s->set_sel;
+        int sel = i == cur;
         Color c = !o->available ? DIM : sel ? ORANGE : WHITE;
         if (sel)
             fill_rect(X0 - 22, y - 4, 4, 30, ORANGE);
@@ -321,16 +330,46 @@ static void draw_settings(const State *s)
         }
         fill_rect(X0, y + 32, VALUE_X + 24 - X0, 1, (Color){255, 255, 255, 18});
     }
-    const Option *o = &s->opts[s->set_sel];
+    const Option *o = &opts[cur];
     const char *desc = s->message[0] ? s->message
                      : o->available ? o->desc
-                                    : tr(STR_OPT_FILE_MISSING);
-    draw_wrapped(&f_text, 19, X0, DESC_Y, 560, 24, desc, s->message[0] ? ORANGE : GRAY);
+                     : o->missing   ? o->missing
+                                    : "";
+    draw_wrapped(&f_text, 19, X0, DESC_Y, 560, 24, desc, !s->message[0] ? GRAY : s->busy ? WHITE : ORANGE);
 
     float x = X0 + 40;
     hint(&x, NULL, 2, tr(STR_HINT_CHANGE));
     hint(&x, NULL, 1, tr(STR_HINT_NAVIGATE));
-    hint(&x, "B", 0, tr(STR_HINT_SAVE_BACK));
+    hint(&x, "B", 0, tr(back));
+}
+
+static void render(const State *s)
+{
+    fbuf = framebufferBegin(&fb, &fstride);
+    fstride /= 4;
+    for (int y = 0; y < H; y++)
+        memcpy(&fbuf[y * fstride], &bg[y * W], W * 4);
+    if (s->screen == SCREEN_SETTINGS)
+        draw_options(s, STR_TITLE_SETTINGS, s->opts, OPT_COUNT, s->set_sel, STR_HINT_SAVE_BACK);
+    else if (s->screen == SCREEN_MODS)
+        draw_options(s, STR_TITLE_MODS, s->mrows, MROW_COUNT, s->mod_sel, STR_HINT_APPLY_BACK);
+    else
+        draw_main(s);
+    framebufferEnd(&fb);
+}
+
+/* shows a progress note before blocking work (reading or writing the NROs) */
+static void busy(State *s, StrId what)
+{
+    snprintf(s->message, sizeof s->message, "%s", tr(what));
+    s->busy = 1;
+    render(s);
+}
+
+static void idle(State *s)
+{
+    s->busy = 0;
+    s->message[0] = 0;
 }
 
 /* ------------------------------------------------------------------ actions */
@@ -346,11 +385,37 @@ static void save(State *s)
         s->dirty = 0;
 }
 
+/* B on the mods screen: rewrites the NROs that changed, then goes back */
+static void apply_mods(State *s)
+{
+    char err[256];
+    s->message[0] = 0;
+    if (mods_dirty(s->games)) {
+        busy(s, STR_MODS_APPLYING);
+        int r = mods_save(s->games, err, sizeof err);
+        idle(s);
+        mods_rows(s->games, s->mrows);
+        if (r) {
+            snprintf(s->message, sizeof s->message, "%s", err);
+            return;
+        }
+    }
+    s->screen = SCREEN_MAIN;
+}
+
 static int activate(State *s, int item)
 {
     s->message[0] = 0;
     if (item == ITEM_SETTINGS) {
         s->screen = SCREEN_SETTINGS;
+        return 0;
+    }
+    if (item == ITEM_MODS) {
+        busy(s, STR_MODS_READING);
+        mods_load(s->games);
+        mods_rows(s->games, s->mrows);
+        idle(s);
+        s->screen = SCREEN_MODS;
         return 0;
     }
     const char *name = ITEM_NRO[item];
@@ -426,7 +491,6 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    Framebuffer fb;
     framebufferCreate(&fb, nwindowGetDefault(), W, H, PIXEL_FORMAT_RGBA_8888, 2);
     framebufferMakeLinear(&fb);
 
@@ -467,45 +531,47 @@ int main(int argc, char **argv)
                 }
             }
         } else {
-            Option *o = &s.opts[s.set_sel];
+            int mods = s.screen == SCREEN_MODS;
+            Option *opts = mods ? s.mrows : s.opts;
+            int count = mods ? MROW_COUNT : OPT_COUNT;
+            int *cur = mods ? &s.mod_sel : &s.set_sel;
             int change = 0;
             if (down & (HidNpadButton_B | HidNpadButton_Plus)) {
-                s.message[0] = 0;
-                save(&s);
-                if (!s.message[0])
-                    s.screen = SCREEN_MAIN;
+                if (mods) {
+                    apply_mods(&s);
+                } else {
+                    s.message[0] = 0;
+                    save(&s);
+                    if (!s.message[0])
+                        s.screen = SCREEN_MAIN;
+                }
             }
-            if (down & HidNpadButton_AnyUp) { s.set_sel = (s.set_sel + OPT_COUNT - 1) % OPT_COUNT; s.message[0] = 0; }
-            if (down & HidNpadButton_AnyDown) { s.set_sel = (s.set_sel + 1) % OPT_COUNT; s.message[0] = 0; }
+            if (down & HidNpadButton_AnyUp) { *cur = (*cur + count - 1) % count; s.message[0] = 0; }
+            if (down & HidNpadButton_AnyDown) { *cur = (*cur + 1) % count; s.message[0] = 0; }
             if (down & HidNpadButton_AnyLeft)
                 change = -1;
             if (down & (HidNpadButton_AnyRight | HidNpadButton_A))
                 change = 1;
             if (tapped && tx >= X0 - 30 && tx < VALUE_X + 40) {
-                int row = hit_row(ty, SET_Y, SET_STEP, OPT_COUNT);
+                int row = hit_row(ty, SET_Y, SET_STEP, count);
                 if (row >= 0) {
-                    if (row == s.set_sel)
+                    if (row == *cur)
                         change = 1;
-                    s.set_sel = row;
-                    o = &s.opts[row];
+                    *cur = row;
                 }
             }
-            if (change && o->available) {
+            Option *o = &opts[*cur];
+            if (change && o->available && s.screen != SCREEN_MAIN) {
                 o->value = (o->value + change + o->count) % o->count;
-                s.dirty = 1;
+                if (mods)
+                    mods_set(s.games, *cur, o->value);
+                else
+                    s.dirty = 1;
                 s.message[0] = 0;
             }
         }
 
-        fbuf = framebufferBegin(&fb, &fstride);
-        fstride /= 4;
-        for (int y = 0; y < H; y++)
-            memcpy(&fbuf[y * fstride], &bg[y * W], W * 4);
-        if (s.screen == SCREEN_MAIN)
-            draw_main(&s);
-        else
-            draw_settings(&s);
-        framebufferEnd(&fb);
+        render(&s);
     }
 
     save(&s);
