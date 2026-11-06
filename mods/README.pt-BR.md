@@ -14,6 +14,8 @@ Grava por cima e deixa `t6mp.nro.bak`. O script procura as instruções por assi
 
 Liga o puxão da mira ao apertar ZL, o lock-on (a mira acompanha o alvo enquanto você mexe o analógico) e um alcance de auto-aim para armas que têm 0. Deixe **AIM ASSIST** ligado em Controles → Gamepad.
 
+O puxão da mira só funciona em partidas contra bots: copie também `sd/switch/t6game/scripts/mp/aim_assist_bots_only.gsc` para `/switch/t6game/scripts/mp/`. O patch só liga o auto-aim quando este console é o servidor e o script diz que todos os outros jogadores são bots (ou jogam no mesmo console, em tela dividida). Se um humano de fora entra, ele desliga em até 1 s. Entrando na partida de outra pessoa ele fica desligado. Sem o script, o auto-aim fica desligado no multiplayer. O modo de sessão não serve para isso: o online do port roda como system link, igual ao Solo e à Private Match. O lock-on e o alcance do auto-aim são à parte: o alcance só é usado pelo auto-aim, e o lock-on não passa pela checagem (não sobra espaço livre no `t6mp.nro` para um segundo gate). Um `t6mp.nro` com o patch antigo (`nop`) é convertido ao rodar o script de novo. A fonte do gate é `aim_gate/aim_gate.c`; `aim_gate/build.sh` recompila o `aim_gate.bin` (precisa do zig).
+
 ## Bots nos modos Party
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` libera bots em Gun Game, One in the Chamber, Sticks & Stones e Sharpshooter. O botão "Setup Bots" continua desativado nesses modos: configure quantidade e dificuldade num modo normal antes de trocar. Se a quantidade estiver em 0, entram 5 bots (`party_bots_default_count()`).

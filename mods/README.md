@@ -14,6 +14,8 @@ Patches the file in place and leaves `t6mp.nro.bak`. The script finds the instru
 
 Enables the aim snap when pressing ZL, lock-on (the reticle follows the target while you move the stick) and an auto-aim range for weapons that have 0. Keep **AIM ASSIST** enabled in Controls → Gamepad.
 
+The aim snap only works in matches against bots: also copy `sd/switch/t6game/scripts/mp/aim_assist_bots_only.gsc` to `/switch/t6game/scripts/mp/`. The patch only enables auto-aim while this console is the server and the script says every other player is a bot (or plays on the same console, in split screen). When a human from outside joins, it turns off within 1 s. When you join someone else's match it stays off. Without the script, auto-aim stays off in multiplayer. The session mode can't be used for this: the port's online play runs as system link, just like Solo and Private Match. Lock-on and the auto-aim range are separate: the range is only used by auto-aim, and lock-on is not gated (there is no free space left in `t6mp.nro` for a second gate). A `t6mp.nro` with the old patch (`nop`) is converted by running the script again. The gate's source is `aim_gate/aim_gate.c`; `aim_gate/build.sh` rebuilds `aim_gate.bin` (needs zig).
+
 ## Bots in Party modes
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` allows bots in Gun Game, One in the Chamber, Sticks & Stones and Sharpshooter. The "Setup Bots" button stays disabled in these modes: set the bot count and difficulty in a regular mode before switching. If the count is 0, 5 bots join (`party_bots_default_count()`).

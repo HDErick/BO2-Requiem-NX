@@ -107,28 +107,13 @@ def main():
     name, start = find_guest(nro)
     g = Guest(nro, start)
 
-    # first PT_LOAD: text + rodata + eh_frame (R+X)
-    ph = next(p for p in g.phdrs if struct.unpack_from("<I", nro, p)[0] == 1)
-    _, seg_off, seg_va, _, filesz, memsz, flags, _ = struct.unpack_from("<8I", nro, ph)
-    if not flags & 1 or seg_off != 0 or filesz != memsz:
-        raise SystemExit("unexpected first guest segment; unsupported version")
     call_off, call_pc, callee, buf = find_site(g)
-    seg_end = seg_va + filesz
-
     if callee >= g.secs[".eh_frame"][0] + g.secs[".eh_frame"][2]:
         print("already patched; nothing to do")
         return
 
-    cave = (seg_end + 3) & ~3
-    blob = build_cave(cave, callee, buf)
-    end = cave + len(blob)
-    if end > (seg_end + 0xFFF) & ~0xFFF:
-        raise SystemExit("no free space at the end of the segment")
-    raw = start + seg_off + (cave - seg_va)
-    if any(nro[start + seg_off + (seg_end - seg_va):raw + len(blob)]):
-        raise SystemExit("space after the segment is not zeroed; unsupported version")
-    nro[raw:raw + len(blob)] = blob
-    struct.pack_into("<II", nro, ph + 16, end - seg_va, end - seg_va)
+    cave = g.next_code_va(4)
+    g.append_code(build_cave(cave, callee, buf), 4)
     g.put(call_off, enc_bl(call_pc, cave))
 
     write_nro(nro, src, dst, [
