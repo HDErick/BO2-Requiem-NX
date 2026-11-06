@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Gera o romfs do launcher a partir do t6game.nro original.
+"""Builds the launcher romfs from the original t6game.nro.
 
-  romfs/bg.png       fundo 1280x720: textura e logo R do launcherBG.png original,
-                     lado esquerdo escurecido, brilho no logo, título e faixa de rodapé
-  romfs/title.ttf    fonte dos títulos e itens (DIN Condensed Bold no macOS)
-  romfs/text.ttf     fonte dos textos menores (Avenir Next Condensed no macOS; .ttc serve)
-  romfs/text.idx     índices das faces normal e negrito dentro de text.ttf
-  icon.jpg           ícone do NRO original
+  romfs/bg.png       1280x720 background: texture and R logo from the original launcherBG.png,
+                     darkened left side, glow behind the logo, title and footer band
+  romfs/title.ttf    font for titles and menu items (DIN Condensed Bold on macOS)
+  romfs/text.ttf     font for smaller text (Avenir Next Condensed on macOS; a .ttc works)
+  romfs/text.idx     indices of the regular and bold faces inside text.ttf
+  icon.jpg           icon of the original NRO
 
-Nada disso vai para o repositório: o fundo e o ícone são do port, e as fontes são do
-sistema. Outras fontes: LAUNCHER_TITLE_FONT / LAUNCHER_TEXT_FONT (.ttf ou .ttc),
-LAUNCHER_TEXT_FONT_INDEX e LAUNCHER_TEXT_FONT_BOLD_INDEX.
+None of this goes into the repository: the background and icon belong to the port, and
+the fonts belong to the system. Other fonts: LAUNCHER_TITLE_FONT / LAUNCHER_TEXT_FONT
+(.ttf or .ttc), LAUNCHER_TEXT_FONT_INDEX and LAUNCHER_TEXT_FONT_BOLD_INDEX.
 
-Uso: python3 make_assets.py caminho/para/t6game.nro pasta_de_saida
+Usage: python3 make_assets.py path/to/t6game.nro output_dir
 """
 import io
 import os
@@ -22,22 +22,22 @@ import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 1280, 720
-X0, HEADER_Y = 110, 134          # precisa bater com o layout de source/main.c
+X0, HEADER_Y = 110, 134          # must match the layout in source/main.c
 ORANGE = (255, 122, 0)
 TITLE_FONT = os.environ.get("LAUNCHER_TITLE_FONT", "/System/Library/Fonts/Supplemental/DIN Condensed Bold.ttf")
 TEXT_FONT = os.environ.get("LAUNCHER_TEXT_FONT", "/System/Library/Fonts/Avenir Next Condensed.ttc")
-TEXT_FONT_INDEX = int(os.environ.get("LAUNCHER_TEXT_FONT_INDEX", "5"))       # Medium no .ttc do macOS
+TEXT_FONT_INDEX = int(os.environ.get("LAUNCHER_TEXT_FONT_INDEX", "5"))       # Medium in the macOS .ttc
 TEXT_FONT_BOLD_INDEX = int(os.environ.get("LAUNCHER_TEXT_FONT_BOLD_INDEX", "0"))  # Bold
 
 
 def nro_assets(path):
-    """(ícone JPEG, launcherBG.png) do NRO original."""
+    """(JPEG icon, launcherBG.png) from the original NRO."""
     nro = open(path, "rb").read()
     if nro[0x10:0x14] != b"NRO0":
-        raise SystemExit("não é um NRO")
+        raise SystemExit("not an NRO")
     aset = struct.unpack_from("<I", nro, 0x18)[0]
     if nro[aset:aset + 4] != b"ASET":
-        raise SystemExit("NRO sem ASET")
+        raise SystemExit("NRO has no ASET section")
     icon_off, icon_size, _, _, rom_off, _ = struct.unpack_from("<6Q", nro, aset + 8)
     rom = nro[aset + rom_off:]
     hdr = struct.unpack_from("<10Q", rom, 0)
@@ -49,7 +49,7 @@ def nro_assets(path):
         files[name] = rom[data_off + foff:data_off + foff + fsize]
         pos += 32 + ((nlen + 3) & ~3)
     if "launcherBG.png" not in files:
-        raise SystemExit("launcherBG.png não está no romfs; não parece o t6game.nro original")
+        raise SystemExit("launcherBG.png is not in the romfs; this does not look like the original t6game.nro")
     return nro[aset + icon_off:aset + icon_off + icon_size], files["launcherBG.png"]
 
 
@@ -64,17 +64,17 @@ def spaced(draw, xy, text, fnt, fill, spacing):
 def make_background(orig):
     img = orig.convert("RGB").resize((W, H)).convert("RGBA")
 
-    # lado esquerdo escurecido para o texto; o logo da direita continua visível
+    # darken the left side for the text; the logo on the right stays visible
     shade = Image.new("L", (W, H))
     shade.putdata([int(235 * (max(0.0, 1.0 - x / 820.0) ** 1.4)) for _ in range(H) for x in range(W)])
     img = Image.composite(Image.new("RGBA", (W, H), (6, 7, 9, 255)), img, shade)
 
-    # brilho laranja atrás do logo
+    # orange glow behind the logo
     glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((800, 120, 1180, 580), fill=ORANGE + (70,))
     img = Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(90)))
 
-    # vinheta em cima e faixa escura embaixo
+    # vignette at the top and dark band at the bottom
     over = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     od = ImageDraw.Draw(over)
     for y in range(110):
@@ -107,7 +107,7 @@ def main():
     open(os.path.join(out, "romfs", "title.ttf"), "wb").write(open(TITLE_FONT, "rb").read())
     open(os.path.join(out, "romfs", "text.ttf"), "wb").write(open(TEXT_FONT, "rb").read())
     open(os.path.join(out, "romfs", "text.idx"), "w").write(f"{TEXT_FONT_INDEX} {TEXT_FONT_BOLD_INDEX}\n")
-    print(f"assets em {out}")
+    print(f"assets in {out}")
 
 
 if __name__ == "__main__":

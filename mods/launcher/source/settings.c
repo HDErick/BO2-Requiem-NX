@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "i18n.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -11,12 +12,13 @@
 #define DXVK_CONF  GAME_DIR "/dxvk-sarek.conf"
 #define PARTY_GSC  GAME_DIR "/scripts/mp/party_bots.gsc"
 
-static const char *const HUD_NAMES[] = {"Desligado", "FPS", "FPS + frametime", "Completo"};
+/* Translated names are filled in settings_load, after i18n_init. */
+static const char *HUD_NAMES[4];
 static const char *const HUD_VALUES[] = {"", "fps", "fps,frametimes", "fps,frametimes,gpuload,memory"};
-static const char *const ONOFF[] = {"Desligado", "Ligado"};
+static const char *ONOFF[2];
 static const char *const MAX_FPS_NAMES[] = {"30", "60"};
 static const int MAX_FPS_VALUES[] = {30, 60};
-static const char *const LATENCY_NAMES[] = {"1 (padrão)", "2", "3"};
+static const char *LATENCY_NAMES[] = {NULL, "2", "3"};
 static const char *const FOV_NAMES[] = {"65", "70", "75", "80"};
 static const int FOV_VALUES[] = {65, 70, 75, 80};
 static const char *const BOTS_NAMES[] = {"3", "5", "7", "9"};
@@ -24,7 +26,7 @@ static const int BOTS_VALUES[] = {3, 5, 7, 9};
 
 #define N(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
-/* ------------------------------------------------------------------ arquivos */
+/* ------------------------------------------------------------------ files */
 
 static char *read_file(const char *path, size_t *len)
 {
@@ -47,7 +49,7 @@ static char *read_file(const char *path, size_t *len)
     return buf;
 }
 
-/* grava em .tmp e troca, para não deixar o arquivo pela metade se faltar energia */
+/* write to .tmp and swap, so a power loss never leaves a half-written file */
 static int write_file(const char *path, const char *data, size_t len)
 {
     char tmp[256];
@@ -69,7 +71,7 @@ static int exists(const char *path) { return access(path, F_OK) == 0; }
 
 /* ------------------------------------------------------------------ config_*.cfg */
 
-/* valor de `seta name "valor"`; devolve 0 se não achou */
+/* value of `seta name "value"`; returns 0 if not found */
 static int cfg_get(const char *cfg, const char *name, char *out, size_t outlen)
 {
     size_t nl = strlen(name);
@@ -87,7 +89,7 @@ static int cfg_get(const char *cfg, const char *name, char *out, size_t outlen)
     return 0;
 }
 
-/* nova cópia de cfg com `seta name "value"` trocado (ou acrescentado no fim) */
+/* new copy of cfg with `seta name "value"` replaced (or appended at the end) */
 static char *cfg_set(const char *cfg, const char *name, const char *value)
 {
     size_t nl = strlen(name), cl = strlen(cfg);
@@ -109,7 +111,7 @@ static char *cfg_set(const char *cfg, const char *name, const char *value)
         }
         p = eol ? eol + 1 : end;
     }
-    /* não achou: acrescenta no fim */
+    /* not found: append at the end */
     strcpy(out, cfg);
     if (cl && out[cl - 1] != '\n')
         strcat(out, "\n");
@@ -118,7 +120,7 @@ static char *cfg_set(const char *cfg, const char *name, const char *value)
     return out;
 }
 
-/* ------------------------------------------------------------------ carregar */
+/* ------------------------------------------------------------------ load */
 
 static int index_of_int(const int *values, int count, int v, int fallback)
 {
@@ -130,27 +132,21 @@ static int index_of_int(const int *values, int count, int v, int fallback)
 
 void settings_load(Option *o)
 {
-    o[OPT_HUD] = (Option){"Gráfico de desempenho",
-        "HUD do DXVK no canto da tela: FPS, gráfico de frametime, uso da GPU e memória.",
-        HUD_NAMES, N(HUD_NAMES), 0, 1};
-    o[OPT_FPS_COUNTER] = (Option){"Contador de FPS do jogo",
-        "O mesmo de Opções > Mostrar FPS: FPS, frametime médio e o pior quadro.",
-        ONOFF, 2, 1, 1};
-    o[OPT_VSYNC] = (Option){"V-Sync",
-        "Trava o jogo no ritmo da tela (60 Hz). Sem ele, o limite de 60 FPS vira 62 e a imagem engasga.",
-        ONOFF, 2, 1, 1};
-    o[OPT_MAX_FPS] = (Option){"FPS máximo",
-        "Limite de quadros do jogo (com_maxfps). Com V-Sync ligado, deixe em 60.",
-        MAX_FPS_NAMES, N(MAX_FPS_NAMES), 1, 1};
-    o[OPT_LATENCY] = (Option){"Quadros adiantados",
-        "Quantos quadros a CPU pode preparar antes da GPU. Mais quadros absorvem engasgos, com um pouco mais de atraso.",
-        LATENCY_NAMES, N(LATENCY_NAMES), 0, 1};
-    o[OPT_FOV] = (Option){"Campo de visão",
-        "FOV padrão do multijogador e do Zumbis (cg_fov_default).",
-        FOV_NAMES, N(FOV_NAMES), 0, 1};
-    o[OPT_PARTY_BOTS] = (Option){"Bots nos modos Party",
-        "Quantos bots entram em Gun Game, One in the Chamber, Sticks & Stones e Sharpshooter.",
-        BOTS_NAMES, N(BOTS_NAMES), 1, 1};
+    HUD_NAMES[0] = tr(STR_OFF);
+    HUD_NAMES[1] = "FPS";
+    HUD_NAMES[2] = tr(STR_HUD_FPS_FRAMETIME);
+    HUD_NAMES[3] = tr(STR_HUD_FULL);
+    ONOFF[0] = tr(STR_OFF);
+    ONOFF[1] = tr(STR_ON);
+    LATENCY_NAMES[0] = tr(STR_LATENCY_1);
+
+    o[OPT_HUD] = (Option){tr(STR_OPT_HUD), tr(STR_OPT_HUD_DESC), HUD_NAMES, N(HUD_NAMES), 0, 1};
+    o[OPT_FPS_COUNTER] = (Option){tr(STR_OPT_FPS_COUNTER), tr(STR_OPT_FPS_COUNTER_DESC), ONOFF, 2, 1, 1};
+    o[OPT_VSYNC] = (Option){tr(STR_OPT_VSYNC), tr(STR_OPT_VSYNC_DESC), ONOFF, 2, 1, 1};
+    o[OPT_MAX_FPS] = (Option){tr(STR_OPT_MAX_FPS), tr(STR_OPT_MAX_FPS_DESC), MAX_FPS_NAMES, N(MAX_FPS_NAMES), 1, 1};
+    o[OPT_LATENCY] = (Option){tr(STR_OPT_LATENCY), tr(STR_OPT_LATENCY_DESC), LATENCY_NAMES, N(LATENCY_NAMES), 0, 1};
+    o[OPT_FOV] = (Option){tr(STR_OPT_FOV), tr(STR_OPT_FOV_DESC), FOV_NAMES, N(FOV_NAMES), 0, 1};
+    o[OPT_PARTY_BOTS] = (Option){tr(STR_OPT_PARTY_BOTS), tr(STR_OPT_PARTY_BOTS_DESC), BOTS_NAMES, N(BOTS_NAMES), 1, 1};
 
     char v[64];
     char *cfg = read_file(CFG_MP, NULL);
@@ -168,7 +164,7 @@ void settings_load(Option *o)
         free(cfg);
     }
 
-    /* sem o arquivo, o port força frame latency 1 e não liga o HUD */
+    /* without the file the port forces frame latency 1 and leaves the HUD off */
     char *conf = read_file(DXVK_CONF, NULL);
     if (conf) {
         for (char *p = conf; p && *p; p = strchr(p, '\n') ? strchr(p, '\n') + 1 : NULL) {
@@ -207,7 +203,7 @@ void settings_load(Option *o)
     }
 }
 
-/* ------------------------------------------------------------------ gravar */
+/* ------------------------------------------------------------------ save */
 
 static int save_cfg(const char *path, const Option *o)
 {
@@ -239,12 +235,12 @@ static int save_dxvk(const Option *o)
 {
     int hud = o[OPT_HUD].value, lat = o[OPT_LATENCY].value + 1;
     if (hud == 0 && lat == 1) {
-        remove(DXVK_CONF);  /* padrão do port: sem arquivo */
+        remove(DXVK_CONF);  /* port default: no file */
         return 0;
     }
     char buf[512];
     int n = snprintf(buf, sizeof buf,
-                     "# Gerado pelo launcher (Configurações). Apague para voltar ao padrão do port.\n"
+                     "# Generated by the launcher (Settings). Delete it to go back to the port's default.\n"
                      "dxgi.maxFrameLatency = %d\n"
                      "d3d11.maxFrameLatency = %d\n",
                      lat, lat);
@@ -286,19 +282,19 @@ static int save_party_bots(const Option *o)
 int settings_save(const Option *o, char *err, size_t errlen)
 {
     if (save_cfg(CFG_MP, o)) {
-        snprintf(err, errlen, "Não deu para gravar %s", CFG_MP);
+        snprintf(err, errlen, tr(STR_ERR_WRITE_FMT), CFG_MP);
         return -1;
     }
     if (exists(CFG_ZM) && save_cfg(CFG_ZM, o)) {
-        snprintf(err, errlen, "Não deu para gravar %s", CFG_ZM);
+        snprintf(err, errlen, tr(STR_ERR_WRITE_FMT), CFG_ZM);
         return -1;
     }
     if (save_dxvk(o)) {
-        snprintf(err, errlen, "Não deu para gravar %s", DXVK_CONF);
+        snprintf(err, errlen, tr(STR_ERR_WRITE_FMT), DXVK_CONF);
         return -1;
     }
     if (o[OPT_PARTY_BOTS].available && save_party_bots(o)) {
-        snprintf(err, errlen, "Não deu para gravar %s", PARTY_GSC);
+        snprintf(err, errlen, tr(STR_ERR_WRITE_FMT), PARTY_GSC);
         return -1;
     }
     return 0;

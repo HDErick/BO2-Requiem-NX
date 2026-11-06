@@ -1,13 +1,13 @@
 #!/bin/sh
-# Compila o launcher novo: build.sh caminho/para/t6game.nro.original [saida.nro]
+# Builds the new launcher: build.sh path/to/t6game.nro.original [output.nro]
 #
-# Gera os assets a partir do launcher original (precisa de Python com Pillow; PYTHON=...)
-# e compila com o container devkitpro/devkita64 (docker).
+# Generates the assets from the original launcher (needs Python with Pillow; PYTHON=...)
+# and compiles inside the devkitpro/devkita64 container (docker).
 set -e
 cd "$(dirname "$0")"
 ORIG="$1"
 OUT="${2:-launcher.nro}"
-[ -f "$ORIG" ] || { echo "uso: $0 t6game.nro.original [saida.nro]"; exit 1; }
+[ -f "$ORIG" ] || { echo "usage: $0 t6game.nro.original [output.nro]"; exit 1; }
 PYTHON="${PYTHON:-python3}"
 
 rm -rf assets

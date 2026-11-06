@@ -1,10 +1,10 @@
 /*
- * Launcher do BO2 Requiem NX com tela de configurações.
+ * BO2 Requiem NX launcher with a settings screen.
  *
- * Desenha num framebuffer 1280x720 (RGBA8888, software) sobre o fundo romfs:/bg.png,
- * com texto via stb_truetype. Escolhe Multijogador/Zumbis (envSetNextLoad do
- * t6mp/t6zm.nro), abre as configurações (settings.c) ou o launcher original
- * (t6game_orig.nro), que é quem busca atualizações.
+ * Draws into a 1280x720 software framebuffer (RGBA8888) over the romfs:/bg.png
+ * background, with text via stb_truetype. Picks Multiplayer/Zombies (envSetNextLoad
+ * of t6mp/t6zm.nro), opens the settings (settings.c) or the original launcher
+ * (t6game_orig.nro), which is the one that fetches updates.
  */
 #include <math.h>
 #include <stdarg.h>
@@ -21,16 +21,17 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
+#include "i18n.h"
 #include "settings.h"
 
 #define W 1280
 #define H 720
 #define X0 110
-#define MENU_Y 342      /* 1ª linha do menu principal (o título no fundo fica 208 px acima) */
+#define MENU_Y 342      /* first main menu row (the title in the background sits 208 px above) */
 #define MENU_STEP 44
-#define SET_Y 336       /* 1ª linha das configurações */
+#define SET_Y 336       /* first settings row */
 #define SET_STEP 36
-#define VALUE_X 600     /* borda direita dos valores nas configurações */
+#define VALUE_X 600     /* right edge of the values on the settings screen */
 #define DESC_Y 596
 #define HINT_Y 672
 
@@ -38,11 +39,11 @@ typedef struct { u8 r, g, b, a; } Color;
 static const Color WHITE = {242, 242, 242, 255}, GRAY = {150, 150, 150, 255}, DIM = {98, 98, 98, 255},
                    ORANGE = {255, 122, 0, 255}, HINT = {190, 190, 190, 255}, BLACK_SHADOW = {0, 0, 0, 150};
 
-static u32 *fbuf;           /* framebuffer atual */
-static u32 fstride;         /* em pixels */
-static u32 *bg;             /* fundo já convertido */
+static u32 *fbuf;           /* current framebuffer */
+static u32 fstride;         /* in pixels */
+static u32 *bg;             /* background, already converted */
 
-/* ------------------------------------------------------------------ desenho */
+/* ------------------------------------------------------------------ drawing */
 
 static inline void blend(u32 *p, Color c, int cov)
 {
@@ -75,7 +76,7 @@ static void ring(int cx, int cy, float r, float thick, Color c)
         }
 }
 
-/* triângulo apontando para dir: 0 cima, 1 baixo, 2 esquerda, 3 direita */
+/* triangle pointing towards dir: 0 up, 1 down, 2 left, 3 right */
 static void arrow(int cx, int cy, int s, int dir, Color c)
 {
     for (int i = 0; i <= s; i++) {
@@ -94,7 +95,7 @@ static void arrow(int cx, int cy, int s, int dir, Color c)
     }
 }
 
-/* ------------------------------------------------------------------ texto */
+/* ------------------------------------------------------------------ text */
 
 typedef struct {
     stbtt_fontinfo info;
@@ -142,7 +143,7 @@ static int utf8_next(const char **s)
     return cp;
 }
 
-/* altura das maiúsculas, para alinhar textos de fontes diferentes pelo topo */
+/* cap height, to top-align text from different fonts */
 static int cap_height(const Font *f, int px)
 {
     int x0, y0, x1, y1;
@@ -162,7 +163,7 @@ static float text_width(const Font *f, int px, const char *s, float spacing)
     return w;
 }
 
-/* y é o topo das maiúsculas; devolve o x final */
+/* y is the cap top; returns the final x */
 static float draw_text(const Font *f, int px, float x, int y, const char *s, Color c, float spacing)
 {
     int base = y + cap_height(f, px);
@@ -191,7 +192,7 @@ static void draw_shadowed(const Font *f, int px, float x, int y, const char *s, 
     draw_text(f, px, x, y, s, c, spacing);
 }
 
-/* texto que quebra linha dentro de max_w */
+/* text wrapped to max_w */
 static void draw_wrapped(const Font *f, int px, int x, int y, int max_w, int line_h, const char *s, Color c)
 {
     char line[384] = {0}, word[128];
@@ -234,18 +235,13 @@ static int load_font(Font *f, const char *path, int index)
     return off < 0 || !stbtt_InitFont(&f->info, f->data, off) ? -1 : 0;
 }
 
-/* ------------------------------------------------------------------ telas */
+/* ------------------------------------------------------------------ screens */
 
 enum { SCREEN_MAIN, SCREEN_SETTINGS };
 enum { ITEM_MP, ITEM_ZM, ITEM_SETTINGS, ITEM_UPDATES, ITEM_COUNT };
 
-static const char *const ITEM_LABEL[ITEM_COUNT] = {"MULTIJOGADOR", "ZUMBIS", "CONFIGURAÇÕES", "ATUALIZAÇÕES"};
-static const char *const ITEM_DESC[ITEM_COUNT] = {
-    "Partidas contra bots, system link, tela dividida e servidores online.",
-    "Modo Zumbis, com os mapas e mods da pasta do jogo.",
-    "Gráfico de desempenho, V-Sync, limite de FPS, campo de visão e bots.",
-    "Abre o launcher original do Requiem NX para buscar e instalar atualizações.",
-};
+static const StrId ITEM_LABEL[ITEM_COUNT] = {STR_ITEM_MP, STR_ITEM_ZM, STR_ITEM_SETTINGS, STR_ITEM_UPDATES};
+static const StrId ITEM_DESC[ITEM_COUNT] = {STR_DESC_MP, STR_DESC_ZM, STR_DESC_SETTINGS, STR_DESC_UPDATES};
 static const char *const ITEM_NRO[ITEM_COUNT] = {"t6mp.nro", "t6zm.nro", NULL, "t6game_orig.nro"};
 
 typedef struct {
@@ -253,7 +249,7 @@ typedef struct {
     int sel, set_sel;
     Option opts[OPT_COUNT];
     int dirty;
-    char message[256];      /* aviso no lugar da descrição */
+    char message[256];      /* warning shown in place of the description */
     int app_mode;
     char launch[256];
 } State;
@@ -284,7 +280,7 @@ static void hint(float *x, const char *glyph_text, int glyph_kind, const char *l
 
 static void draw_main(const State *s)
 {
-    draw_text(&f_text, 16, X0, MENU_Y - 30, "SELECIONE O MODO", GRAY, 4);
+    draw_text(&f_text, 16, X0, MENU_Y - 30, tr(STR_TITLE_MAIN), GRAY, 4);
     fill_rect(X0 - 22, MENU_Y - 4, 4, ITEM_COUNT * MENU_STEP - 8, (Color){255, 122, 0, 70});
     for (int i = 0; i < ITEM_COUNT; i++) {
         int y = MENU_Y + i * MENU_STEP;
@@ -293,21 +289,21 @@ static void draw_main(const State *s)
         Color c = sel ? ORANGE : missing ? DIM : WHITE;
         if (sel)
             fill_rect(X0 - 22, y - 4, 4, 36, ORANGE);
-        draw_shadowed(&f_title, 38, X0, y + 3, ITEM_LABEL[i], c, 3);
+        draw_shadowed(&f_title, 38, X0, y + 3, tr(ITEM_LABEL[i]), c, 3);
         fill_rect(X0, y + 39, 440, 1, (Color){255, 255, 255, 22});
     }
-    const char *desc = s->message[0] ? s->message : ITEM_DESC[s->sel];
+    const char *desc = s->message[0] ? s->message : tr(ITEM_DESC[s->sel]);
     draw_wrapped(&f_text, 19, X0, DESC_Y, 520, 24, desc, s->message[0] ? ORANGE : GRAY);
 
     float x = X0 + 40;
-    hint(&x, "A", 0, "ABRIR");
-    hint(&x, NULL, 1, "NAVEGAR");
-    hint(&x, "+", 0, "SAIR");
+    hint(&x, "A", 0, tr(STR_HINT_OPEN));
+    hint(&x, NULL, 1, tr(STR_HINT_NAVIGATE));
+    hint(&x, "+", 0, tr(STR_HINT_EXIT));
 }
 
 static void draw_settings(const State *s)
 {
-    draw_text(&f_text, 16, X0, SET_Y - 26, "CONFIGURAÇÕES", GRAY, 4);
+    draw_text(&f_text, 16, X0, SET_Y - 26, tr(STR_TITLE_SETTINGS), GRAY, 4);
     for (int i = 0; i < OPT_COUNT; i++) {
         const Option *o = &s->opts[i];
         int y = SET_Y + i * SET_STEP;
@@ -328,16 +324,16 @@ static void draw_settings(const State *s)
     const Option *o = &s->opts[s->set_sel];
     const char *desc = s->message[0] ? s->message
                      : o->available ? o->desc
-                                    : "O arquivo desta opção não existe (scripts/mp/party_bots.gsc).";
+                                    : tr(STR_OPT_FILE_MISSING);
     draw_wrapped(&f_text, 19, X0, DESC_Y, 560, 24, desc, s->message[0] ? ORANGE : GRAY);
 
     float x = X0 + 40;
-    hint(&x, NULL, 2, "ALTERAR");
-    hint(&x, NULL, 1, "NAVEGAR");
-    hint(&x, "B", 0, "SALVAR E VOLTAR");
+    hint(&x, NULL, 2, tr(STR_HINT_CHANGE));
+    hint(&x, NULL, 1, tr(STR_HINT_NAVIGATE));
+    hint(&x, "B", 0, tr(STR_HINT_SAVE_BACK));
 }
 
-/* ------------------------------------------------------------------ ações */
+/* ------------------------------------------------------------------ actions */
 
 static void save(State *s)
 {
@@ -359,24 +355,24 @@ static int activate(State *s, int item)
     }
     const char *name = ITEM_NRO[item];
     if (!nro_exists(name)) {
-        snprintf(s->message, sizeof s->message,
-                 item == ITEM_UPDATES ? "Falta o launcher original: renomeie o t6game.nro do Requiem para t6game_orig.nro."
-                                      : "Falta %s na pasta /switch/t6game.", name);
+        if (item == ITEM_UPDATES)
+            snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NO_ORIG_LAUNCHER));
+        else
+            snprintf(s->message, sizeof s->message, tr(STR_ERR_NRO_MISSING_FMT), name);
         return 0;
     }
     if (!s->app_mode && item != ITEM_UPDATES) {
-        snprintf(s->message, sizeof s->message,
-                 "O jogo precisa do modo aplicativo: abra pelo title takeover (segure R ao abrir um jogo) ou por um forwarder.");
+        snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NEED_APP_MODE));
         return 0;
     }
     if (!envHasNextLoad()) {
-        snprintf(s->message, sizeof s->message, "Este carregador não permite abrir outro NRO. Abra pelo hbmenu.");
+        snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NO_NEXT_LOAD));
         return 0;
     }
     snprintf(s->launch, sizeof s->launch, GAME_DIR "/%s", name);
     Result rc = envSetNextLoad(s->launch, s->launch);
     if (R_FAILED(rc)) {
-        snprintf(s->message, sizeof s->message, "Não deu para abrir %s (0x%08x).", name, rc);
+        snprintf(s->message, sizeof s->message, tr(STR_ERR_LAUNCH_FMT), name, rc);
         return 0;
     }
     return 1;
@@ -393,6 +389,7 @@ static int hit_row(int ty, int first_y, int step, int count)
 int main(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    i18n_init();
     romfsInit();
 
     int ww, hh, n;
@@ -414,7 +411,7 @@ int main(int argc, char **argv)
     if (load_font(&f_title, "romfs:/title.ttf", 0) || load_font(&f_text, "romfs:/text.ttf", idx_text) ||
         load_font(&f_bold, "romfs:/text.ttf", idx_bold)) {
         consoleInit(NULL);
-        printf("Fontes do launcher ausentes no romfs.\nPressione + para sair.\n");
+        printf("%s", tr(STR_ERR_FONTS_MISSING));
         PadState pad;
         padConfigureInput(1, HidNpadStyleSet_NpadStandard);
         padInitializeDefault(&pad);

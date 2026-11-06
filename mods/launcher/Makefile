@@ -1,10 +1,10 @@
 #---------------------------------------------------------------------------------
-# Launcher do BO2 Requiem NX (libnx). Use build.sh, que gera os assets antes.
+# BO2 Requiem NX launcher (libnx). Use build.sh, which generates the assets first.
 #---------------------------------------------------------------------------------
 .SUFFIXES:
 
 ifeq ($(strip $(DEVKITPRO)),)
-$(error "Defina DEVKITPRO (ou use build.sh, que compila no container devkitpro/devkita64)")
+$(error "Set DEVKITPRO (or use build.sh, which builds in the devkitpro/devkita64 container)")
 endif
 
 TOPDIR ?= $(CURDIR)
