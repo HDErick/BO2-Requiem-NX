@@ -3,7 +3,7 @@
 #
 # Generates the assets from the original launcher (needs Python with Pillow; PYTHON=...)
 # and compiles inside the devkitpro/devkita64 container (docker). The Mods screen
-# carries perf_log.bin, aim_gate.bin and aim_assist_bots_only.gsc in its romfs.
+# carries perf_log.bin, aim_gate.bin, cfg_buf.bin and aim_assist_bots_only.gsc in its romfs.
 set -e
 cd "$(dirname "$0")"
 ORIG="$1"
@@ -13,7 +13,7 @@ PYTHON="${PYTHON:-python3}"
 
 rm -rf assets
 $PYTHON make_assets.py "$ORIG" assets
-cp ../perf_log/perf_log.bin ../aim_gate/aim_gate.bin \
+cp ../perf_log/perf_log.bin ../aim_gate/aim_gate.bin ../cfg_buf/cfg_buf.bin \
    ../sd/switch/t6game/scripts/mp/aim_assist_bots_only.gsc assets/romfs/
 docker run --rm --platform linux/amd64 -v "$PWD":/src -w /src devkitpro/devkita64 \
     sh -c 'make clean >/dev/null && make -j4 ASSETS=assets'

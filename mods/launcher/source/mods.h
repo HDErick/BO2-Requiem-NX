@@ -20,7 +20,7 @@ typedef struct {
     char err[160];          /* why it is not supported */
 } ModGame;
 
-enum { MROW_AIM_ASSIST, MROW_FPS_MP, MROW_FPS_ZM, MROW_PERF_LOG, MROW_LOG_NOFSYNC, MROW_COUNT };
+enum { MROW_AIM_ASSIST, MROW_FPS_MP, MROW_FPS_ZM, MROW_PERF_LOG, MROW_LOG_NOFSYNC, MROW_CFG_BUFFER, MROW_COUNT };
 
 /* Reads both NROs (tens of MB each: a few seconds) and detects the applied mods.
  * Safe to run on a background thread; setting mods_cancel makes it stop early (the

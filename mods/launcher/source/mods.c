@@ -171,13 +171,15 @@ void mods_rows(const ModGame games[GAME_COUNT], Option rows[MROW_COUNT])
         [MROW_FPS_ZM] = {GAME_ZM, MOD_FPS_COUNTER, STR_MOD_FPS_ZM, STR_MOD_FPS_DESC},
         [MROW_PERF_LOG] = {GAME_MP, MOD_PERF_LOG, STR_MOD_PERF_LOG, STR_MOD_PERF_LOG_DESC},
         [MROW_LOG_NOFSYNC] = {GAME_MP, MOD_LOG_NOFSYNC, STR_MOD_LOG_NOFSYNC, STR_MOD_LOG_NOFSYNC_DESC},
+        [MROW_CFG_BUFFER] = {GAME_MP, MOD_CFG_BUFFER, STR_MOD_CFG_BUFFER, STR_MOD_CFG_BUFFER_DESC},
     };
     ONOFF[0] = tr(STR_OFF);
     ONOFF[1] = tr(STR_ON);
     for (int r = 0; r < MROW_COUNT; r++) {
         int game = ROWS[r].game, mod = ROWS[r].mod;
-        /* the log row covers both games: shown from Zombies when multiplayer is not usable */
-        if (r == MROW_LOG_NOFSYNC && !usable(&games[GAME_MP], mod) && usable(&games[GAME_ZM], mod))
+        /* these rows cover both games: shown from Zombies when multiplayer is not usable */
+        if ((r == MROW_LOG_NOFSYNC || r == MROW_CFG_BUFFER) && !usable(&games[GAME_MP], mod) &&
+            usable(&games[GAME_ZM], mod))
             game = GAME_ZM;
         const ModGame *m = &games[game];
         int ok = usable(m, mod);
@@ -195,10 +197,13 @@ void mods_set(ModGame games[GAME_COUNT], int row, int on)
     case MROW_FPS_ZM: games[GAME_ZM].want[MOD_FPS_COUNTER] = v; break;
     case MROW_PERF_LOG: games[GAME_MP].want[MOD_PERF_LOG] = v; break;
     case MROW_LOG_NOFSYNC:
+    case MROW_CFG_BUFFER: {
+        int mod = row == MROW_LOG_NOFSYNC ? MOD_LOG_NOFSYNC : MOD_CFG_BUFFER;
         for (int g = 0; g < GAME_COUNT; g++)
-            if (usable(&games[g], MOD_LOG_NOFSYNC))
-                games[g].want[MOD_LOG_NOFSYNC] = v;
+            if (usable(&games[g], mod))
+                games[g].want[mod] = v;
         break;
+    }
     }
 }
 
@@ -226,8 +231,12 @@ const char *mods_summary(const ModGame games[GAME_COUNT], char *buf, size_t len)
     for (size_t i = 0; i < sizeof APPLIED / sizeof APPLIED[0]; i++)
         if (games[APPLIED[i].game].state[APPLIED[i].mod] == MOD_ON)
             n += snprintf(buf + n, n < len ? len - n : 0, "%s%s", n ? ", " : "", tr(APPLIED[i].name));
-    if (games[GAME_MP].state[MOD_LOG_NOFSYNC] == MOD_ON || games[GAME_ZM].state[MOD_LOG_NOFSYNC] == MOD_ON)
-        n += snprintf(buf + n, n < len ? len - n : 0, "%s%s", n ? ", " : "", tr(STR_SHORT_LOG_NOFSYNC));
+    static const struct { int mod; StrId name; } BOTH[] = {
+        {MOD_CFG_BUFFER, STR_SHORT_CFG_BUFFER}, {MOD_LOG_NOFSYNC, STR_SHORT_LOG_NOFSYNC},
+    };
+    for (size_t i = 0; i < sizeof BOTH / sizeof BOTH[0]; i++)
+        if (games[GAME_MP].state[BOTH[i].mod] == MOD_ON || games[GAME_ZM].state[BOTH[i].mod] == MOD_ON)
+            n += snprintf(buf + n, n < len ? len - n : 0, "%s%s", n ? ", " : "", tr(BOTH[i].name));
     return buf;
 }
 
@@ -430,9 +439,10 @@ static int install_gate_script(char *err, size_t errlen)
 
 int mods_save(ModGame games[GAME_COUNT], char *err, size_t errlen)
 {
-    size_t plen = 0, glen = 0;
-    uint8_t *perf = load(ROMFS "perf_log.bin", &plen), *gate = load(ROMFS "aim_gate.bin", &glen);
-    ModBlobs blobs = {{perf, plen}, {gate, glen}};
+    size_t plen = 0, glen = 0, clen = 0;
+    uint8_t *perf = load(ROMFS "perf_log.bin", &plen), *gate = load(ROMFS "aim_gate.bin", &glen),
+            *cfg = load(ROMFS "cfg_buf.bin", &clen);
+    ModBlobs blobs = {{perf, plen}, {gate, glen}, {cfg, clen}};
     int r = 0;
     for (int g = 0; g < GAME_COUNT && !r; g++)
         if (game_dirty(&games[g]))
@@ -441,5 +451,6 @@ int mods_save(ModGame games[GAME_COUNT], char *err, size_t errlen)
         r = install_gate_script(err, errlen);
     free(perf);
     free(gate);
+    free(cfg);
     return r;
 }

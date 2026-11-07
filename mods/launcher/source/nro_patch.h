@@ -4,7 +4,8 @@
  *
  * Same signatures, same order and the same bytes as the Python scripts: applying a set
  * of mods to an original NRO here gives the same file as running the scripts on it in
- * the order patch_mp_aimassist, patch_fps_counter, patch_perf_log, patch_log_nofsync.
+ * the order patch_mp_aimassist, patch_fps_counter, patch_perf_log, patch_config_write,
+ * patch_log_nofsync.
  * No libnx: also builds on the host for tests.
  */
 #include <stddef.h>
@@ -15,6 +16,7 @@ typedef enum {
     MOD_FPS_COUNTER,    /* patch_fps_counter.py (t6mp and t6zm) */
     MOD_PERF_LOG,       /* patch_perf_log.py (t6mp only; needs perf_log.bin) */
     MOD_LOG_NOFSYNC,    /* patch_log_nofsync.py (t6mp and t6zm) */
+    MOD_CFG_BUFFER,     /* patch_config_write.py (t6mp and t6zm; needs cfg_buf.bin) */
     MOD_COUNT
 } ModId;
 
@@ -28,6 +30,7 @@ typedef struct {
 typedef struct {
     Blob perf_log;      /* perf_log/perf_log.bin */
     Blob aim_gate;      /* aim_gate/aim_gate.bin */
+    Blob cfg_buf;       /* cfg_buf/cfg_buf.bin */
 } ModBlobs;
 
 /* State of each mod in this NRO: MOD_ON, MOD_OFF, or MOD_NA when it does not apply to
