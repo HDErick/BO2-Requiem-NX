@@ -20,6 +20,8 @@ The aim snap only works in matches against bots: also copy `sd/switch/t6game/scr
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` allows bots in Gun Game, One in the Chamber, Sticks & Stones and Sharpshooter. The "Setup Bots" button stays disabled in these modes: set the bot count and difficulty in a regular mode before switching. If the count is 0, 5 bots join (`party_bots_default_count()`).
 
+`sd/switch/t6game/scripts/mp/bot_class_fix.gsc` fixes `bot_choose_class()`: when a bot is killed by an aircraft killstreak (UAV, helicopters...) it looks for a class with a launcher, but the stock code passes positions in its list of class names as class numbers, past the last class, and the engine logs a burst of `Invalid unlockable item` lines. The fix passes the real class numbers (custom 0-4, default classes 10-14).
+
 ## New launcher with settings and mods (t6game.nro)
 
 ```
@@ -45,7 +47,7 @@ In **SETTINGS**:
 
 With the HUD off and 1 frame queued ahead, `dxvk-sarek.conf` is deleted: without it the port already forces frame latency 1. When the file exists the port stops forcing it, so the launcher always writes the latency along with it.
 
-**MODS** turns the patches from this README on and off without a PC: aim assist against bots, FPS counter (MP and Zombies), performance log and log without fsync. The screen reads `t6mp.nro` and `t6zm.nro` and shows what is already applied; when you go back with B, every changed NRO is rebuilt from its original (`t6mp.nro.bak` / `t6zm.nro.bak`, created the first time), so turning a mod off restores the original bytes. After a game update, the new (unpatched) NRO becomes the new `.bak`; just turn the mods on again. Turning on the aim assist also installs `scripts/mp/aim_assist_bots_only.gsc`. The code is `launcher/source/nro_patch.c`, which does the same patches as the Python scripts and produces the same bytes (`perf_log.bin`, `aim_gate.bin` and the `.gsc` go in the launcher's romfs). Each apply reads and writes tens of MB on the SD card and takes a few seconds; the card needs room for a temporary copy of the NRO.
+**MODS** turns the patches from this README on and off without a PC: aim assist against bots, FPS counter (MP and Zombies), performance log, log without fsync and config writes without freezes. The screen reads `t6mp.nro` and `t6zm.nro` and shows what is already applied; when you go back with B, every changed NRO is rebuilt from its original (`t6mp.nro.bak` / `t6zm.nro.bak`, created the first time), so turning a mod off restores the original bytes. After a game update, the new (unpatched) NRO becomes the new `.bak`; just turn the mods on again. Turning on the aim assist also installs `scripts/mp/aim_assist_bots_only.gsc`. The code is `launcher/source/nro_patch.c`, which does the same patches as the Python scripts and produces the same bytes (`perf_log.bin`, `aim_gate.bin`, `cfg_buf.bin` and the `.gsc` go in the launcher's romfs). Each apply reads and writes tens of MB on the SD card and takes a few seconds; the card needs room for a temporary copy of the NRO.
 
 ## FPS counter with frametime
 
@@ -71,7 +73,16 @@ python3 patch_log_nofsync.py /path/to/t6mp.nro
 python3 patch_log_nofsync.py /path/to/t6zm.nro
 ```
 
-The port calls fsync after every `t6mp.log`/`t6zm.log` line, which costs about 17 ms on the SD card: any line logged during a match (bots picking classes, the `[perf]` summary) becomes a hitch. The patch removes that fsync from the host's log function; lines are still written immediately. The crash handler flushes the file on its own, so `[nx-crash]` reports are kept; only the last lines before a power-off or a pulled SD card can be lost. Works on both NROs and with the other patches, in any order.
+The port calls fsync after every `t6mp.log`/`t6zm.log` line. The patch removes that fsync from the host's log function; lines are still written immediately. On hardware each line still costs ~10-12 ms afterwards (every small write to the SD card is slow, see the next section), a few ms less than with the fsync. The crash handler flushes the file on its own, so `[nx-crash]` reports are kept; only the last lines before a power-off or a pulled SD card can be lost. Works on both NROs and with the other patches, in any order.
+
+## Config writes without freezes
+
+```
+python3 patch_config_write.py /path/to/t6mp.nro
+python3 patch_config_write.py /path/to/t6zm.nro
+```
+
+Every time a saved setting changes (opening the lobby, Setup Bots, after a map loads, on quit) the game rewrites `players/config_mp.cfg` (`config_zm.cfg`) one line at a time, and each line is a separate write to the SD card of ~10-13 ms: ~250 lines freeze the game for ~3 s (`[nx-stall]` reports showed the main thread in `Com_WriteConfigToFile` → `FS_Printf` → `FS_Write` → `write()`). The patch gathers that file in a 1 KB buffer and writes it in blocks (about 10 writes instead of ~250); the content is the same. The code (`cfg_buf/cfg_buf.c`, rebuilt with `cfg_buf/build.sh`) goes over the last bytes of `.eh_frame`, which nothing in the game reads, because the space after the code segment is taken by the other patches. Works with the other patches, in any order.
 
 ## DXVK HUD (optional)
 

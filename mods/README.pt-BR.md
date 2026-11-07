@@ -20,6 +20,8 @@ O puxão da mira só funciona em partidas contra bots: copie também `sd/switch/
 
 `sd/switch/t6game/scripts/mp/party_bots.gsc` libera bots em Gun Game, One in the Chamber, Sticks & Stones e Sharpshooter. O botão "Setup Bots" continua desativado nesses modos: configure quantidade e dificuldade num modo normal antes de trocar. Se a quantidade estiver em 0, entram 5 bots (`party_bots_default_count()`).
 
+`sd/switch/t6game/scripts/mp/bot_class_fix.gsc` corrige o `bot_choose_class()`: quando um bot morre para uma killstreak aérea (UAV, helicópteros...), ele procura uma classe com lança-mísseis, mas o código original passa as posições na lista de nomes de classe como se fossem números de classe, além da última classe, e o motor grava uma rajada de `Invalid unlockable item` no log. A correção passa os números de classe certos (personalizadas 0-4, padrão 10-14).
+
 ## Launcher novo com configurações e mods (t6game.nro)
 
 ```
@@ -45,7 +47,7 @@ Em **Configurações**:
 
 Com o HUD desligado e 1 quadro adiantado, o `dxvk-sarek.conf` é apagado: sem ele o port já força frame latency 1. Com o arquivo presente, o port deixa de forçar, por isso o launcher sempre grava a latência junto.
 
-Em **Mods** dá para ligar e desligar, sem PC, os patches deste README: mira assistida contra bots, contador de FPS (MP e Zumbis), log de desempenho e log sem fsync. A tela lê o `t6mp.nro` e o `t6zm.nro` e mostra o que já está aplicado; ao voltar com B, cada NRO alterado é refeito a partir do original (`t6mp.nro.bak` / `t6zm.nro.bak`, criado na primeira vez), então desligar um mod volta os bytes originais. Depois de uma atualização do jogo, o NRO novo (sem mods) vira o novo `.bak` e basta ligar os mods de novo. Ligar a mira assistida também instala o `scripts/mp/aim_assist_bots_only.gsc`. O código é `launcher/source/nro_patch.c`, que faz os mesmos patches dos scripts Python e gera os mesmos bytes (o `perf_log.bin`, o `aim_gate.bin` e o `.gsc` vão no romfs do launcher). Cada aplicação lê e grava dezenas de MB no SD e leva alguns segundos; o SD precisa de espaço para uma cópia temporária do NRO.
+Em **Mods** dá para ligar e desligar, sem PC, os patches deste README: mira assistida contra bots, contador de FPS (MP e Zumbis), log de desempenho, log sem fsync e config sem travadas. A tela lê o `t6mp.nro` e o `t6zm.nro` e mostra o que já está aplicado; ao voltar com B, cada NRO alterado é refeito a partir do original (`t6mp.nro.bak` / `t6zm.nro.bak`, criado na primeira vez), então desligar um mod volta os bytes originais. Depois de uma atualização do jogo, o NRO novo (sem mods) vira o novo `.bak` e basta ligar os mods de novo. Ligar a mira assistida também instala o `scripts/mp/aim_assist_bots_only.gsc`. O código é `launcher/source/nro_patch.c`, que faz os mesmos patches dos scripts Python e gera os mesmos bytes (o `perf_log.bin`, o `aim_gate.bin`, o `cfg_buf.bin` e o `.gsc` vão no romfs do launcher). Cada aplicação lê e grava dezenas de MB no SD e leva alguns segundos; o SD precisa de espaço para uma cópia temporária do NRO.
 
 ## Contador de FPS com frametime
 
@@ -71,7 +73,16 @@ python3 patch_log_nofsync.py /caminho/para/t6mp.nro
 python3 patch_log_nofsync.py /caminho/para/t6zm.nro
 ```
 
-O port chama fsync depois de cada linha do `t6mp.log`/`t6zm.log`, o que custa uns 17 ms no cartão SD: qualquer linha escrita durante a partida (bots escolhendo classe, o resumo `[perf]`) vira um engasgo. O patch tira esse fsync da função de log do host; as linhas continuam sendo gravadas na hora. O tratador de crash força a gravação por conta própria, então os relatórios `[nx-crash]` continuam completos; só as últimas linhas antes de desligar o console ou tirar o SD podem se perder. Funciona nos dois NROs e junto com os outros patches, em qualquer ordem.
+O port chama fsync depois de cada linha do `t6mp.log`/`t6zm.log`. O patch tira esse fsync da função de log do host; as linhas continuam sendo gravadas na hora. No console, cada linha ainda custa ~10-12 ms depois disso (toda gravação pequena no SD é lenta, veja a próxima seção), alguns ms a menos que com o fsync. O tratador de crash força a gravação por conta própria, então os relatórios `[nx-crash]` continuam completos; só as últimas linhas antes de desligar o console ou tirar o SD podem se perder. Funciona nos dois NROs e junto com os outros patches, em qualquer ordem.
+
+## Config sem travadas
+
+```
+python3 patch_config_write.py /caminho/para/t6mp.nro
+python3 patch_config_write.py /caminho/para/t6zm.nro
+```
+
+Toda vez que uma configuração salva muda (abrir o lobby, Configurar Bots, depois de carregar o mapa, ao sair) o jogo regrava o `players/config_mp.cfg` (`config_zm.cfg`) uma linha por vez, e cada linha é uma gravação separada no SD de ~10-13 ms: ~250 linhas travam o jogo por ~3 s (os relatórios `[nx-stall]` mostraram o thread principal em `Com_WriteConfigToFile` → `FS_Printf` → `FS_Write` → `write()`). O patch junta esse arquivo num buffer de 1 KB e grava em blocos (umas 10 gravações em vez de ~250); o conteúdo é o mesmo. O código (`cfg_buf/cfg_buf.c`, recompilado com `cfg_buf/build.sh`) vai por cima dos últimos bytes do `.eh_frame`, que nada no jogo lê, porque o espaço depois do segmento de código já está ocupado pelos outros patches. Funciona junto com os outros patches, em qualquer ordem.
 
 ## HUD do DXVK (opcional)
 
