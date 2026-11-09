@@ -1,5 +1,5 @@
 # BO2-Requiem-NX
-Requiem Project: A port of the Ghidra decompilation of Black Ops II's PC executables) to Horizon, built with devkitPro and libnx. The engine runs as AArch64 code with 32-bit pointers (ILP32) inside a normal 64-bit libnx NRO;  The game renders with Direct3D 11, which the Switch doesn’t have. DXVK translates D3D11 to Vulkan.
+Requiem Project: A port of the Ghidra decompilation of Black Ops II's PC executables) to Horizon, built with devkitPro and libnx. The engine runs as AArch64 code with 32-bit pointers (ILP32) inside a normal 64-bit libnx NRO;  The game renders with Direct3D 11, which the Switch doesn’t have. Versions 0.3.4 and later use a Native Vulkan renderer (NVK).
 
 Currently limited to Zombies and Multiplayer. Campaign needs to be fully decompiled to be included here.
 
