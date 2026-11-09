@@ -6,7 +6,7 @@ Currently limited to Zombies and Multiplayer. Campaign needs to be fully decompi
 Goal of the project is to have crossplay online servers with most devices
 
 # Source Code release date:
-- Planned Early November 2026, after the initial beta testing.
+- Planned November 2026, after the initial beta testing.
   
 # Credits:
 - [Valve](https://github.com/femboyvalve) For the Black Ops 2 Decompilation project used as a base
