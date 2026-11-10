@@ -14,5 +14,5 @@ Goal of the project is to have crossplay online servers with most devices
 - [NaGa](https://github.com/NaGaa95) For the nintendo switch mesa drivers, and switch mesa drivers.
 - INCOMPLETE, TO ADD MORE SOON
 
-# DISCORD SERVER for updates:
+# DISCORD SERVER for updates and mods:
 https://discord.gg/PvyZuq5Yhp
