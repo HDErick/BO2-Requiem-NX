@@ -11,7 +11,7 @@ Goal of the project is to have crossplay online servers with most devices
 # Credits:
 - [Valve](https://github.com/femboyvalve) For the Black Ops 2 Decompilation project used as a base
 - MestreTM. For fixing most of the bugs in the Decompilation project and adding more features.
-- [NaGa](https://github.com/NaGaa95) For the nintendo switch mesa drivers, and the implementation of DXVK.
+- [NaGa](https://github.com/NaGaa95) For the nintendo switch mesa drivers, and switch mesa drivers.
 - INCOMPLETE, TO ADD MORE SOON
 
 # DISCORD SERVER for updates:
