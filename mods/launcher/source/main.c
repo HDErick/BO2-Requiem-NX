@@ -1,0 +1,686 @@
+/*
+ * BO2 Requiem NX launcher with settings and mods screens.
+ *
+ * Draws into a 1280x720 software framebuffer (RGBA8888) over the romfs:/bg.png
+ * background, with text via stb_truetype. Picks Multiplayer/Zombies (envSetNextLoad
+ * of t6mp/t6zm.nro), opens the settings (settings.c), the mods (mods.c: binary patches
+ * of t6mp/t6zm.nro) or the original launcher (t6game_orig.nro), which is the one that
+ * fetches updates.
+ */
+#include <math.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <switch.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include "stb_image.h"
+
+#include "i18n.h"
+#include "mods.h"
+#include "settings.h"
+#include "sound.h"
+
+#define W 1280
+#define H 720
+#define X0 110
+#define MENU_Y 342      /* first main menu row (the title in the background sits 208 px above) */
+#define MENU_STEP 44
+#define MENU_STEP_TIGHT 40  /* with the CAMPAIGN item (6 rows) */
+#define SET_Y 336       /* first settings row */
+#define SET_STEP 36
+#define VALUE_X 600     /* right edge of the values on the settings screen */
+#define DESC_Y 596
+#define HINT_Y 672
+#define FADE_FRAMES 8   /* cross-fade between screens */
+
+typedef struct { u8 r, g, b, a; } Color;
+static const Color WHITE = {242, 242, 242, 255}, GRAY = {150, 150, 150, 255}, DIM = {98, 98, 98, 255},
+                   ORANGE = {255, 122, 0, 255}, HINT = {190, 190, 190, 255}, BLACK_SHADOW = {0, 0, 0, 150};
+
+static u32 *fbuf;           /* where drawing goes (the canvas) */
+static u32 fstride;         /* in pixels */
+static u32 *bg;             /* background, already converted */
+static u32 *canvas, *prev_frame;
+
+/* ------------------------------------------------------------------ drawing */
+
+static inline void blend(u32 *p, Color c, int cov)
+{
+    int a = c.a * cov / 255;
+    if (a <= 0)
+        return;
+    u32 d = *p;
+    int dr = d & 0xff, dg = (d >> 8) & 0xff, db = (d >> 16) & 0xff;
+    dr += (c.r - dr) * a / 255;
+    dg += (c.g - dg) * a / 255;
+    db += (c.b - db) * a / 255;
+    *p = (u32)dr | (u32)dg << 8 | (u32)db << 16 | 0xff000000u;
+}
+
+static void fill_rect(int x, int y, int w, int h, Color c)
+{
+    for (int yy = y < 0 ? 0 : y; yy < y + h && yy < H; yy++)
+        for (int xx = x < 0 ? 0 : x; xx < x + w && xx < W; xx++)
+            blend(&fbuf[yy * fstride + xx], c, 255);
+}
+
+static void ring(int cx, int cy, float r, float thick, Color c)
+{
+    for (int y = cy - r - 1; y <= cy + r + 1; y++)
+        for (int x = cx - r - 1; x <= cx + r + 1; x++) {
+            float d = sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy));
+            float cov = 1.0f - fabsf(d - (r - thick / 2)) / (thick / 2 + 0.5f);
+            if (cov > 0 && x >= 0 && y >= 0 && x < W && y < H)
+                blend(&fbuf[y * fstride + x], c, (int)(cov * 255));
+        }
+}
+
+/* triangle pointing towards dir: 0 up, 1 down, 2 left, 3 right */
+static void arrow(int cx, int cy, int s, int dir, Color c)
+{
+    for (int i = 0; i <= s; i++) {
+        int half = i * 7 / 10;
+        for (int j = -half; j <= half; j++) {
+            int x, y;
+            switch (dir) {
+            case 0: x = cx + j; y = cy - s / 2 + i; break;
+            case 1: x = cx + j; y = cy + s / 2 - i; break;
+            case 2: x = cx - s / 2 + i; y = cy + j; break;
+            default: x = cx + s / 2 - i; y = cy + j; break;
+            }
+            if (x >= 0 && y >= 0 && x < W && y < H)
+                blend(&fbuf[y * fstride + x], c, 255);
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ text */
+
+typedef struct {
+    stbtt_fontinfo info;
+    u8 *data;
+} Font;
+
+static Font f_title, f_text, f_bold;
+
+typedef struct {
+    const Font *font;
+    int px, cp;
+    int w, h, xoff, yoff;
+    float adv;
+    u8 *bmp;
+} Glyph;
+
+#define GLYPHS 768
+static Glyph glyphs[GLYPHS];
+static int nglyphs;
+
+static const Glyph *glyph(const Font *f, int px, int cp)
+{
+    for (int i = 0; i < nglyphs; i++)
+        if (glyphs[i].font == f && glyphs[i].px == px && glyphs[i].cp == cp)
+            return &glyphs[i];
+    Glyph *g = &glyphs[nglyphs < GLYPHS ? nglyphs++ : GLYPHS - 1];
+    if (g->bmp)
+        stbtt_FreeBitmap(g->bmp, NULL);
+    float s = stbtt_ScaleForPixelHeight(&f->info, px);
+    int adv, lsb;
+    stbtt_GetCodepointHMetrics(&f->info, cp, &adv, &lsb);
+    *g = (Glyph){f, px, cp, 0, 0, 0, 0, adv * s, NULL};
+    g->bmp = stbtt_GetCodepointBitmap(&f->info, s, s, cp, &g->w, &g->h, &g->xoff, &g->yoff);
+    return g;
+}
+
+static int utf8_next(const char **s)
+{
+    const u8 *p = (const u8 *)*s;
+    int cp;
+    if (p[0] < 0x80) { cp = p[0]; *s += 1; }
+    else if ((p[0] & 0xe0) == 0xc0) { cp = (p[0] & 0x1f) << 6 | (p[1] & 0x3f); *s += 2; }
+    else if ((p[0] & 0xf0) == 0xe0) { cp = (p[0] & 0x0f) << 12 | (p[1] & 0x3f) << 6 | (p[2] & 0x3f); *s += 3; }
+    else { cp = '?'; *s += 1; }
+    return cp;
+}
+
+/* cap height, to top-align text from different fonts */
+static int cap_height(const Font *f, int px)
+{
+    int x0, y0, x1, y1;
+    stbtt_GetCodepointBox(&f->info, 'H', &x0, &y0, &x1, &y1);
+    return (int)(y1 * stbtt_ScaleForPixelHeight(&f->info, px) + 0.5f);
+}
+
+static float text_width(const Font *f, int px, const char *s, float spacing)
+{
+    float w = 0;
+    int first = 1;
+    while (*s) {
+        int cp = utf8_next(&s);
+        w += glyph(f, px, cp)->adv + (first ? 0 : spacing);
+        first = 0;
+    }
+    return w;
+}
+
+/* y is the cap top; returns the final x */
+static float draw_text(const Font *f, int px, float x, int y, const char *s, Color c, float spacing)
+{
+    int base = y + cap_height(f, px);
+    while (*s) {
+        int cp = utf8_next(&s);
+        const Glyph *g = glyph(f, px, cp);
+        int gx = (int)(x + 0.5f) + g->xoff, gy = base + g->yoff;
+        for (int yy = 0; yy < g->h; yy++) {
+            int py = gy + yy;
+            if (py < 0 || py >= H)
+                continue;
+            for (int xx = 0; xx < g->w; xx++) {
+                int px_ = gx + xx;
+                if (px_ >= 0 && px_ < W && g->bmp[yy * g->w + xx])
+                    blend(&fbuf[py * fstride + px_], c, g->bmp[yy * g->w + xx]);
+            }
+        }
+        x += g->adv + spacing;
+    }
+    return x - spacing;
+}
+
+static void draw_shadowed(const Font *f, int px, float x, int y, const char *s, Color c, float spacing)
+{
+    draw_text(f, px, x + 2, y + 2, s, BLACK_SHADOW, spacing);
+    draw_text(f, px, x, y, s, c, spacing);
+}
+
+/* text wrapped to max_w */
+static void draw_wrapped(const Font *f, int px, int x, int y, int max_w, int line_h, const char *s, Color c)
+{
+    char line[384] = {0}, word[128];
+    while (*s) {
+        int n = 0;
+        while (*s == ' ')
+            s++;
+        while (*s && *s != ' ' && n < (int)sizeof word - 1)
+            word[n++] = *s++;
+        word[n] = 0;
+        char tryl[sizeof line + sizeof word + 2];
+        snprintf(tryl, sizeof tryl, "%s%s%s", line, line[0] ? " " : "", word);
+        if (line[0] && text_width(f, px, tryl, 0) > max_w) {
+            draw_text(f, px, x, y, line, c, 0);
+            y += line_h;
+            snprintf(line, sizeof line, "%s", word);
+        } else {
+            snprintf(line, sizeof line, "%s", tryl);
+        }
+    }
+    if (line[0])
+        draw_text(f, px, x, y, line, c, 0);
+}
+
+static int load_font(Font *f, const char *path, int index)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp)
+        return -1;
+    fseek(fp, 0, SEEK_END);
+    long n = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    f->data = malloc(n);
+    if (!f->data || fread(f->data, 1, n, fp) != (size_t)n) {
+        fclose(fp);
+        return -1;
+    }
+    fclose(fp);
+    int off = stbtt_GetFontOffsetForIndex(f->data, index);
+    return off < 0 || !stbtt_InitFont(&f->info, f->data, off) ? -1 : 0;
+}
+
+/* ------------------------------------------------------------------ screens */
+
+enum { SCREEN_MAIN, SCREEN_SETTINGS, SCREEN_MODS };
+enum { ITEM_MP, ITEM_ZM, ITEM_CAMPAIGN, ITEM_SETTINGS, ITEM_MODS, ITEM_UPDATES, ITEM_COUNT };
+
+static const StrId ITEM_LABEL[ITEM_COUNT] = {STR_ITEM_MP, STR_ITEM_ZM, STR_ITEM_CAMPAIGN, STR_ITEM_SETTINGS,
+                                             STR_ITEM_MODS, STR_ITEM_UPDATES};
+static const StrId ITEM_DESC[ITEM_COUNT] = {STR_DESC_MP, STR_DESC_ZM, STR_DESC_CAMPAIGN, STR_DESC_SETTINGS,
+                                            STR_DESC_MODS, STR_DESC_UPDATES};
+/* The campaign is the bo2-360-nx Xbox 360 recompilation (github.com/AlvaroEPena/bo2-360-nx),
+ * a separate install: the item only shows up when its NRO is on the SD card. */
+#ifndef CAMPAIGN_NRO
+#define CAMPAIGN_NRO "sdmc:/switch/bo2zm/bo2cp.nro"
+#endif
+static const char *const ITEM_NRO[ITEM_COUNT] = {GAME_DIR "/t6mp.nro", GAME_DIR "/t6zm.nro", CAMPAIGN_NRO, NULL,
+                                                 NULL, GAME_DIR "/t6game_orig.nro"};
+
+typedef struct {
+    int screen;
+    int items[ITEM_COUNT], nitems, step;    /* main menu rows (CAMPAIGN only if installed) */
+    int sel, set_sel, mod_sel;
+    Option opts[OPT_COUNT];
+    int dirty;
+    ModGame games[GAME_COUNT];
+    Option mrows[MROW_COUNT];
+    char message[256];      /* shown in place of the description: a warning, or progress if busy */
+    int busy;
+    int app_mode;
+    char launch[256];
+    char version[24];       /* game version from the NACP, "" if unknown */
+} State;
+
+/* the mods state is read on a background thread at startup (it reads tens of MB) */
+static Thread mods_thread;
+static int mods_thread_on;
+static int mods_ready;
+
+static void mods_worker(void *arg)
+{
+    mods_load(((State *)arg)->games);
+    if (!mods_cancel)
+        __atomic_store_n(&mods_ready, 1, __ATOMIC_RELEASE);
+}
+
+static void mods_join(void)
+{
+    if (mods_thread_on) {
+        threadWaitForExit(&mods_thread);
+        threadClose(&mods_thread);
+        mods_thread_on = 0;
+    }
+}
+
+static Framebuffer fb;
+
+static int nro_exists(const char *path) { return access(path, F_OK) == 0; }
+
+static void menu_init(State *s)
+{
+    s->nitems = 0;
+    for (int i = 0; i < ITEM_COUNT; i++)
+        if (i != ITEM_CAMPAIGN || nro_exists(CAMPAIGN_NRO))
+            s->items[s->nitems++] = i;
+    s->step = s->nitems > 5 ? MENU_STEP_TIGHT : MENU_STEP;
+    s->sel = nro_exists(ITEM_NRO[ITEM_MP]) ? 0 : 1;  /* MP or ZM: always the first two rows */
+}
+
+static void hint(float *x, const char *glyph_text, int glyph_kind, const char *label)
+{
+    int cx = (int)*x + 11, cy = HINT_Y + 11;
+    if (glyph_kind == 0) {
+        ring(cx, cy, 11, 2, (Color){230, 230, 230, 255});
+        float gw = text_width(&f_bold, 17, glyph_text, 0);
+        draw_text(&f_bold, 17, cx - gw / 2, cy - cap_height(&f_bold, 17) / 2, glyph_text, (Color){230, 230, 230, 255}, 0);
+    } else if (glyph_kind == 1) {
+        arrow(cx, cy - 5, 8, 0, (Color){230, 230, 230, 255});
+        arrow(cx, cy + 5, 8, 1, (Color){230, 230, 230, 255});
+    } else {
+        arrow(cx - 5, cy, 8, 2, (Color){230, 230, 230, 255});
+        arrow(cx + 5, cy, 8, 3, (Color){230, 230, 230, 255});
+    }
+    *x = draw_text(&f_bold, 17, *x + 30, HINT_Y + 5, label, HINT, 2) + 34;
+}
+
+static void draw_main(const State *s)
+{
+    draw_text(&f_text, 16, X0, MENU_Y - 30, tr(STR_TITLE_MAIN), GRAY, 4);
+    fill_rect(X0 - 22, MENU_Y - 4, 4, s->nitems * s->step - 8, (Color){255, 122, 0, 70});
+    for (int i = 0; i < s->nitems; i++) {
+        int item = s->items[i], y = MENU_Y + i * s->step;
+        int sel = i == s->sel;
+        int missing = ITEM_NRO[item] && !nro_exists(ITEM_NRO[item]);
+        Color c = sel ? ORANGE : missing ? DIM : WHITE;
+        if (sel)
+            fill_rect(X0 - 22, y - 4, 4, 36, ORANGE);
+        draw_shadowed(&f_title, 38, X0, y + 3, tr(ITEM_LABEL[item]), c, 3);
+        fill_rect(X0, y + s->step - 5, 440, 1, (Color){255, 255, 255, 22});
+    }
+    const char *desc = s->message[0] ? s->message : tr(ITEM_DESC[s->items[s->sel]]);
+    draw_wrapped(&f_text, 19, X0, DESC_Y, 520, 24, desc, !s->message[0] ? GRAY : s->busy ? WHITE : ORANGE);
+
+    float x = X0 + 40;
+    hint(&x, "A", 0, tr(STR_HINT_OPEN));
+    hint(&x, NULL, 1, tr(STR_HINT_NAVIGATE));
+    hint(&x, "+", 0, tr(STR_HINT_EXIT));
+
+    /* footer: game version and the mods applied to it */
+    char foot[320], list[224], mods[260];
+    int n = snprintf(foot, sizeof foot, "REQUIEM NX %s", s->version);
+    if (__atomic_load_n(&mods_ready, __ATOMIC_ACQUIRE)) {
+        mods_summary(s->games, list, sizeof list);
+        if (list[0])
+            snprintf(mods, sizeof mods, tr(STR_FOOTER_MODS_FMT), list);
+        else
+            snprintf(mods, sizeof mods, "%s", tr(STR_FOOTER_NO_MODS));
+        snprintf(foot + n, sizeof foot - n, "   ·   %s", mods);
+    }
+    float fw = text_width(&f_bold, 15, foot, 1);
+    draw_text(&f_bold, 15, W - 40 - fw, HINT_Y + 6, foot, GRAY, 1);
+}
+
+static void draw_options(const State *s, StrId title, const Option *opts, int count, int cur, StrId back)
+{
+    draw_text(&f_text, 16, X0, SET_Y - 26, tr(title), GRAY, 4);
+    for (int i = 0; i < count; i++) {
+        const Option *o = &opts[i];
+        int y = SET_Y + i * SET_STEP;
+        int sel = i == cur;
+        Color c = !o->available ? DIM : sel ? ORANGE : WHITE;
+        if (sel)
+            fill_rect(X0 - 22, y - 4, 4, 30, ORANGE);
+        draw_text(&f_title, 30, X0, y + 2, o->label, c, 2);
+        const char *val = o->available ? o->names[o->value] : "—";
+        float vw = text_width(&f_title, 30, val, 2);
+        draw_text(&f_title, 30, VALUE_X - vw, y + 2, val, c, 2);
+        if (sel && o->available) {
+            arrow(VALUE_X - vw - 16, y + 13, 10, 2, ORANGE);
+            arrow(VALUE_X + 14, y + 13, 10, 3, ORANGE);
+        }
+        fill_rect(X0, y + 32, VALUE_X + 24 - X0, 1, (Color){255, 255, 255, 18});
+    }
+    const Option *o = &opts[cur];
+    const char *desc = s->message[0] ? s->message
+                     : o->available ? o->desc
+                     : o->missing   ? o->missing
+                                    : "";
+    draw_wrapped(&f_text, 19, X0, DESC_Y, 560, 24, desc, !s->message[0] ? GRAY : s->busy ? WHITE : ORANGE);
+
+    float x = X0 + 40;
+    hint(&x, NULL, 2, tr(STR_HINT_CHANGE));
+    hint(&x, NULL, 1, tr(STR_HINT_NAVIGATE));
+    hint(&x, "B", 0, tr(back));
+}
+
+static inline u32 mix(u32 a, u32 b, u32 t)
+{
+    u32 rb = ((a & 0xFF00FF) * t + (b & 0xFF00FF) * (256 - t)) >> 8;
+    u32 g = ((a & 0x00FF00) * t + (b & 0x00FF00) * (256 - t)) >> 8;
+    return (rb & 0xFF00FF) | (g & 0x00FF00) | 0xFF000000u;
+}
+
+static void render(const State *s)
+{
+    static int last_screen = -1, fade;
+    if (last_screen >= 0 && s->screen != last_screen) {
+        memcpy(prev_frame, canvas, W * H * 4);
+        fade = FADE_FRAMES;
+    }
+    last_screen = s->screen;
+
+    fbuf = canvas;
+    fstride = W;
+    memcpy(canvas, bg, W * H * 4);
+    if (s->screen == SCREEN_SETTINGS)
+        draw_options(s, STR_TITLE_SETTINGS, s->opts, OPT_COUNT, s->set_sel, STR_HINT_SAVE_BACK);
+    else if (s->screen == SCREEN_MODS)
+        draw_options(s, STR_TITLE_MODS, s->mrows, MROW_COUNT, s->mod_sel, STR_HINT_APPLY_BACK);
+    else
+        draw_main(s);
+
+    u32 stride;
+    u32 *out = framebufferBegin(&fb, &stride);
+    stride /= 4;
+    if (fade > 0) {
+        u32 t = 256 * (FADE_FRAMES - fade + 1) / (FADE_FRAMES + 1);
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                out[y * stride + x] = mix(canvas[y * W + x], prev_frame[y * W + x], t);
+        fade--;
+    } else {
+        for (int y = 0; y < H; y++)
+            memcpy(&out[y * stride], &canvas[y * W], W * 4);
+    }
+    framebufferEnd(&fb);
+}
+
+/* shows a progress note before blocking work (reading or writing the NROs) */
+static void busy(State *s, StrId what)
+{
+    snprintf(s->message, sizeof s->message, "%s", tr(what));
+    s->busy = 1;
+    render(s);
+}
+
+static void idle(State *s)
+{
+    s->busy = 0;
+    s->message[0] = 0;
+}
+
+/* ------------------------------------------------------------------ actions */
+
+static void save(State *s)
+{
+    char err[200];
+    if (!s->dirty)
+        return;
+    if (settings_save(s->opts, err, sizeof err))
+        snprintf(s->message, sizeof s->message, "%s", err);
+    else
+        s->dirty = 0;
+}
+
+/* B on the mods screen: rewrites the NROs that changed, then goes back */
+static void apply_mods(State *s)
+{
+    char err[256];
+    s->message[0] = 0;
+    if (mods_dirty(s->games)) {
+        busy(s, STR_MODS_APPLYING);
+        int r = mods_save(s->games, err, sizeof err);
+        idle(s);
+        mods_rows(s->games, s->mrows);
+        if (r) {
+            snprintf(s->message, sizeof s->message, "%s", err);
+            return;
+        }
+    }
+    s->screen = SCREEN_MAIN;
+}
+
+static int activate(State *s, int item)
+{
+    s->message[0] = 0;
+    if (item == ITEM_SETTINGS) {
+        s->screen = SCREEN_SETTINGS;
+        return 0;
+    }
+    if (item == ITEM_MODS) {
+        if (!__atomic_load_n(&mods_ready, __ATOMIC_ACQUIRE)) {
+            busy(s, STR_MODS_READING);
+            mods_join();
+            if (!__atomic_load_n(&mods_ready, __ATOMIC_ACQUIRE)) {
+                mods_load(s->games);
+                __atomic_store_n(&mods_ready, 1, __ATOMIC_RELEASE);
+            }
+            idle(s);
+        }
+        /* the screen starts from what is applied now */
+        for (int g = 0; g < GAME_COUNT; g++)
+            memcpy(s->games[g].want, s->games[g].state, sizeof s->games[g].want);
+        mods_rows(s->games, s->mrows);
+        s->screen = SCREEN_MODS;
+        return 0;
+    }
+    const char *path = ITEM_NRO[item], *name = strrchr(path, '/') + 1;
+    if (!nro_exists(path)) {
+        if (item == ITEM_UPDATES)
+            snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NO_ORIG_LAUNCHER));
+        else
+            snprintf(s->message, sizeof s->message, tr(STR_ERR_NRO_MISSING_FMT), name);
+        return 0;
+    }
+    if (!s->app_mode && item != ITEM_UPDATES) {
+        snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NEED_APP_MODE));
+        return 0;
+    }
+    if (!envHasNextLoad()) {
+        snprintf(s->message, sizeof s->message, "%s", tr(STR_ERR_NO_NEXT_LOAD));
+        return 0;
+    }
+    snprintf(s->launch, sizeof s->launch, "%s", path);
+    Result rc = envSetNextLoad(s->launch, s->launch);
+    if (R_FAILED(rc)) {
+        snprintf(s->message, sizeof s->message, tr(STR_ERR_LAUNCH_FMT), name, rc);
+        return 0;
+    }
+    return 1;
+}
+
+static int hit_row(int ty, int first_y, int step, int count)
+{
+    for (int i = 0; i < count; i++)
+        if (ty >= first_y + i * step - 6 && ty < first_y + i * step + step - 6)
+            return i;
+    return -1;
+}
+
+int main(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    i18n_init();
+    romfsInit();
+    sound_init();
+
+    int ww, hh, n;
+    u8 *img = stbi_load("romfs:/bg.png", &ww, &hh, &n, 4);
+    bg = malloc(W * H * 4);
+    canvas = malloc(W * H * 4);
+    prev_frame = malloc(W * H * 4);
+    for (int i = 0; i < W * H; i++)
+        bg[i] = img && ww == W && hh == H
+              ? img[i * 4] | img[i * 4 + 1] << 8 | img[i * 4 + 2] << 16 | 0xff000000u
+              : 0xff0a0807u;
+    stbi_image_free(img);
+
+    int idx_text = 5, idx_bold = 0;
+    FILE *fi = fopen("romfs:/text.idx", "r");
+    if (fi) {
+        if (fscanf(fi, "%d %d", &idx_text, &idx_bold) != 2)
+            idx_text = 5, idx_bold = 0;
+        fclose(fi);
+    }
+    if (load_font(&f_title, "romfs:/title.ttf", 0) || load_font(&f_text, "romfs:/text.ttf", idx_text) ||
+        load_font(&f_bold, "romfs:/text.ttf", idx_bold)) {
+        consoleInit(NULL);
+        printf("%s", tr(STR_ERR_FONTS_MISSING));
+        PadState pad;
+        padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+        padInitializeDefault(&pad);
+        while (appletMainLoop()) {
+            padUpdate(&pad);
+            if (padGetButtonsDown(&pad) & HidNpadButton_Plus)
+                break;
+            consoleUpdate(NULL);
+        }
+        consoleExit(NULL);
+        romfsExit();
+        return 0;
+    }
+
+    framebufferCreate(&fb, nwindowGetDefault(), W, H, PIXEL_FORMAT_RGBA_8888, 2);
+    framebufferMakeLinear(&fb);
+
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    PadState pad;
+    padInitializeDefault(&pad);
+    hidInitializeTouchScreen();
+
+    static State s;
+    AppletType at = appletGetAppletType();
+    s.app_mode = at == AppletType_Application || at == AppletType_SystemApplication;
+    settings_load(s.opts);
+    menu_init(&s);
+    if (mods_game_version(s.version, sizeof s.version))
+        s.version[0] = 0;
+    mods_thread_on = R_SUCCEEDED(threadCreate(&mods_thread, mods_worker, &s, NULL, 0x10000, 0x3B, -2));
+    if (mods_thread_on && R_FAILED(threadStart(&mods_thread))) {
+        threadClose(&mods_thread);
+        mods_thread_on = 0;
+    }
+
+    int prev_touch = 0, quit = 0;
+    while (!quit && appletMainLoop()) {
+        padUpdate(&pad);
+        u64 down = padGetButtonsDown(&pad);
+
+        HidTouchScreenState ts = {0};
+        int touch = hidGetTouchScreenStates(&ts, 1) && ts.count > 0;
+        int tapped = touch && !prev_touch;
+        int tx = touch ? ts.touches[0].x : 0, ty = touch ? ts.touches[0].y : 0;
+        prev_touch = touch;
+
+        int prev_screen = s.screen, prev_sel = s.sel, prev_set = s.set_sel, prev_mod = s.mod_sel;
+        if (s.screen == SCREEN_MAIN) {
+            if (down & HidNpadButton_Plus)
+                break;
+            if (down & HidNpadButton_AnyUp) { s.sel = (s.sel + s.nitems - 1) % s.nitems; s.message[0] = 0; }
+            if (down & HidNpadButton_AnyDown) { s.sel = (s.sel + 1) % s.nitems; s.message[0] = 0; }
+            if (down & HidNpadButton_A)
+                quit = activate(&s, s.items[s.sel]);
+            if (tapped && tx >= X0 - 30 && tx < X0 + 460) {
+                int row = hit_row(ty, MENU_Y, s.step, s.nitems);
+                if (row >= 0) {
+                    s.sel = row;
+                    quit = activate(&s, s.items[row]);
+                }
+            }
+        } else {
+            int mods = s.screen == SCREEN_MODS;
+            Option *opts = mods ? s.mrows : s.opts;
+            int count = mods ? MROW_COUNT : OPT_COUNT;
+            int *cur = mods ? &s.mod_sel : &s.set_sel;
+            int change = 0;
+            if (down & (HidNpadButton_B | HidNpadButton_Plus)) {
+                if (mods) {
+                    apply_mods(&s);
+                } else {
+                    s.message[0] = 0;
+                    save(&s);
+                    if (!s.message[0])
+                        s.screen = SCREEN_MAIN;
+                }
+            }
+            if (down & HidNpadButton_AnyUp) { *cur = (*cur + count - 1) % count; s.message[0] = 0; }
+            if (down & HidNpadButton_AnyDown) { *cur = (*cur + 1) % count; s.message[0] = 0; }
+            if (down & HidNpadButton_AnyLeft)
+                change = -1;
+            if (down & (HidNpadButton_AnyRight | HidNpadButton_A))
+                change = 1;
+            if (tapped && tx >= X0 - 30 && tx < VALUE_X + 40) {
+                int row = hit_row(ty, SET_Y, SET_STEP, count);
+                if (row >= 0) {
+                    if (row == *cur)
+                        change = 1;
+                    *cur = row;
+                }
+            }
+            Option *o = &opts[*cur];
+            if (change && o->available && s.screen != SCREEN_MAIN) {
+                o->value = (o->value + change + o->count) % o->count;
+                if (mods)
+                    mods_set(s.games, *cur, o->value);
+                else
+                    s.dirty = 1;
+                s.message[0] = 0;
+                sound_play();
+            }
+        }
+        if (s.screen != prev_screen || s.sel != prev_sel || s.set_sel != prev_set || s.mod_sel != prev_mod)
+            sound_play();
+
+        render(&s);
+    }
+
+    mods_cancel = 1;
+    mods_join();
+    save(&s);
+    sound_exit();
+    framebufferClose(&fb);
+    romfsExit();
+    return 0;
+}
