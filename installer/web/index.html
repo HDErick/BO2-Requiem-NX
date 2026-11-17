@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BO2 Requiem Compressor</title>
+  <meta name="description" content="Install Black Ops II Zombies and Multiplayer for Android or the Nintendo Switch from your own PC copy, with optional compression. Runs in your browser; your files stay on your device.">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="platform">Black Ops 2 Requiem - Compressor</p>
+      <h1>Black Ops II</h1>
+      <p>Install Zombies and Multiplayer from your own PC copy of Call of Duty: Black Ops II.</p>
+    </header>
+    <section class="setup" aria-label="Installer setup">
+      <div class="step">
+        <div class="grow">
+          <h2>Black Ops II folder</h2>
+          <p id="source-label">Choose the PC folder that holds <code>zone</code> and <code>sound</code>.</p>
+        </div>
+        <button id="source" type="button">Choose game folder</button>
+        <input id="source-files" class="visually-hidden" type="file" webkitdirectory multiple tabindex="-1">
+      </div>
+      <fieldset class="step choices targets" id="targets">
+        <legend><h2>Platform</h2></legend>
+        <label class="choice">
+          <input type="radio" name="target" value="android" checked>
+          <span class="name">Android</span>
+          <span class="what">The game files in a <code>BO2</code> folder.</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="target" value="switch">
+          <span class="name">Nintendo Switch</span>
+          <span class="what" id="switch-what">The game in <code>switch/t6game/</code>, with the executables of the latest
+            BO2 Requiem release.</span>
+        </label>
+      </fieldset>
+      <fieldset class="step choices levels" id="levels">
+        <legend><h2>Compression</h2></legend>
+        <label class="choice">
+          <input type="radio" name="level" value="lossless" checked>
+          <span class="name">Lossless</span>
+          <span class="size" data-size="lossless">—</span>
+          <span class="what">Every texture and sound exactly as on PC. Image packs and loaded sound banks are
+            stored as compressed blocks the game decodes as it reads.</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="level" value="medium">
+          <span class="name">Medium</span>
+          <span class="size" data-size="medium">—</span>
+          <span class="what">Textures at most 512 pixels a side. Sound up to 12 kHz at 14 bits, still stereo.</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="level" value="maximum">
+          <span class="name">Maximum</span>
+          <span class="size" data-size="maximum">—</span>
+          <span class="what">Textures at most 256 pixels a side. Sound up to 8 kHz at 12 bits, in mono.</span>
+        </label>
+      </fieldset>
+      <div class="action">
+        <p id="summary">Your game files stay on this device.</p>
+        <button id="cancel" type="button" hidden>Cancel</button>
+        <button id="zip" type="button" disabled>Save as ZIP</button>
+        <button id="install" class="primary" type="button" disabled>Install to folder</button>
+      </div>
+    </section>
+    <section id="result" class="result" aria-label="Installation progress" hidden>
+      <p id="status" role="status"></p>
+      <progress id="progress" max="1" value="0" aria-label="Installation progress"></progress>
+      <p id="detail" class="detail"></p>
+      <details id="report"><summary>Report</summary><ul id="log"></ul></details>
+    </section>
+    <footer>
+      <span>Install to folder: your device's storage, the SD card or a staging folder (desktop Chrome or Edge).
+        Save as ZIP: any current desktop browser.</span>
+      <span id="release-note"></span>
+    </footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,57 @@
+# Publishes the installer page to GitHub Pages, with the latest release's Switch executables next to
+# it (fetch_release.py). In BO2-Requiem-NX this is .github/workflows/installer-pages.yml, and the
+# page lives in installer/web. It runs on every push that changes the installer, whenever a release
+# is published or edited (so the page always offers the newest executables), and by hand.
+#
+# The page is static: web/generated/t6pack.mjs and .wasm are committed (rebuilt with build_web.py
+# in the port's repository), so nothing is compiled here.
+name: Publish installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'installer/**'
+      - '.github/workflows/installer-pages.yml'
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      WEB_DIR: installer/web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the page
+        run: |
+          test -s "$WEB_DIR/index.html"
+          test -s "$WEB_DIR/generated/t6pack.wasm"
+          test -s "$WEB_DIR/generated/t6pack.mjs"
+      - name: Assemble the site with the latest release's executables
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir site
+          cp -r "$WEB_DIR"/. site/
+          rm -rf site/release site/test-data
+          python3 installer/fetch_release.py --repo "$GITHUB_REPOSITORY" --out site/release
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

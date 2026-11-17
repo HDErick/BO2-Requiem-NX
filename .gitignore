@@ -1,0 +1,5 @@
+# The installer page: Switch executables fetched for local testing (installer/fetch_release.py),
+# and staged test files.
+installer/web/release/
+installer/web/test-data/
+__pycache__/
