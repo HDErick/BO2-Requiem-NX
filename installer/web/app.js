@@ -30,6 +30,8 @@ const RATIOS = {
   maximum: { ipak: 0.186, sabs: 0.346, sabl: 0.391 },
 };
 const SKIP = /\.(log|dmp|mdmp|part|tmp)$/i;
+const ORDER = ['lossless', 'medium', 'maximum'];   // weakest to strongest
+const T6ZB = 0x425a3654;   // a T6ZB container's first 4 bytes, little-endian ("T6ZB", nx/common/t6z_format.h)
 
 // The game modes, told apart by file name (the retail PC layout; checked against a complete Steam copy and a
 // Multiplayer + Zombies one). A mode is installed when its main zone is there; the files no mode claims
@@ -143,6 +145,47 @@ function checkSource(list) {
   return list.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
+// Files this installer compressed already (the folder is one it installed to, or an extracted ZIP of it).
+// e.packed: the level from the folder's .t6installer.json (when the file is the size it wrote), 'unknown'
+// for a T6ZB container it does not describe, null for a game file as it ships. A streamed sound bank
+// re-encoded at MEDIUM or MAXIMUM is a plain bank again, so only the manifest tells it apart.
+async function findPacked(list, manifest) {
+  const files = (manifest && manifest.files) || {};
+  await Promise.all(list.map(async e => {
+    e.packed = null;
+    if (kindOf(e.rel) === 'copy') return;
+    const old = files[e.rel];
+    const lv = old && old.out === e.size ? String(old.key).split('|')[0] : null;
+    if (ORDER.includes(lv)) { e.packed = lv; return; }
+    try {
+      const head = new DataView(await (await e.getFile()).slice(0, 4).arrayBuffer());
+      if (head.byteLength === 4 && head.getUint32(0, true) === T6ZB) e.packed = 'unknown';
+    } catch {}
+  }));
+  return list;
+}
+
+async function readJson(file) {
+  try { return JSON.parse(await file.text()); } catch { return null; }
+}
+
+// What a file gets at level lv: its t6pack arguments, or null to copy it. A file compressed already is
+// copied, unless its level is known and weaker than lv: then it is packed again from that file (t6pack
+// reads its own containers). A weaker level cannot bring back what a stronger one took out.
+function argsFor(e, lv) {
+  const kind = kindOf(e.rel);
+  if (kind === 'copy') return null;
+  if (e.packed && (e.packed === 'unknown' || ORDER.indexOf(lv) <= ORDER.indexOf(e.packed))) return null;
+  return LEVELS[lv][kind];
+}
+
+// A file's estimated size at level lv.
+function estimate(e, lv) {
+  const kind = kindOf(e.rel);
+  if (!argsFor(e, lv)) return e.size;
+  return e.size * RATIOS[lv][kind] / (e.packed ? RATIOS[e.packed][kind] : 1);
+}
+
 // Which modes the folder has, and the checkboxes for them: installed modes on (Campaign off), leftovers of a
 // mode without its main zone (the English campaign zones of a Multiplayer + Zombies copy) off.
 function findModes() {
@@ -197,18 +240,17 @@ function showSource(name) {
 function showSourceLabel() {
   const total = entries.reduce((a, e) => a + e.size, 0);
   const found = Object.keys(MODES).filter(m => modes[m].installed);
+  const packed = entries.filter(e => e.packed).length;
   $('source-label').textContent = t('source.label', { name: sourceName, files: entries.length, size: gb(total) }) +
-    (found.length ? t('source.modes', { modes: modeNames(found) }) : t('source.nomode'));
+    (found.length ? t('source.modes', { modes: modeNames(found) }) : t('source.nomode')) +
+    (packed ? t('source.packed', { n: packed }) : '');
 }
 
 // The levels' estimates, for the chosen modes.
 function showSizes() {
-  const sizes = { ipak: 0, sabs: 0, sabl: 0, copy: 0 };
-  for (const e of selected()) sizes[kindOf(e.rel)] += e.size;
-  for (const el of document.querySelectorAll('[data-size]')) {
-    const r = RATIOS[el.dataset.size];
-    el.textContent = t('size.about', { size: gb(sizes.copy + sizes.ipak * r.ipak + sizes.sabs * r.sabs + sizes.sabl * r.sabl) });
-  }
+  const list = selected();
+  for (const el of document.querySelectorAll('[data-size]'))
+    el.textContent = t('size.about', { size: gb(list.reduce((a, e) => a + estimate(e, el.dataset.size), 0)) });
 }
 
 function summary() {
@@ -238,7 +280,9 @@ async function pickSource() {
   try {
     const dir = await showDirectoryPicker({ id: 't6-source', mode: 'read' });
     $('source-label').textContent = t('source.reading');
-    entries = checkSource(await listFolder(dir, [], []));
+    const list = checkSource(await listFolder(dir, [], []));
+    const manifest = await dir.getFileHandle(MANIFEST).then(h => h.getFile()).then(readJson, () => null);
+    entries = await findPacked(list, manifest);
     sourceHandle = dir;
     showSource(dir.name);
   } catch (error) {
@@ -247,16 +291,19 @@ async function pickSource() {
   updateButtons();
 }
 
-$('source-files').addEventListener('change', () => {
+$('source-files').addEventListener('change', async () => {
   try {
     const files = [...$('source-files').files];
     if (!files.length) return;
     const list = [];
+    let manifest = null;
     for (const file of files) {
       const parts = file.webkitRelativePath.split('/').slice(1);   // drop the chosen folder's name
-      if (parts.length && wanted(parts)) list.push({ rel: parts.join('/'), size: file.size, modified: file.lastModified, getFile: async () => file });
+      if (parts.length === 1 && parts[0] === MANIFEST) manifest = await readJson(file);
+      else if (parts.length && wanted(parts)) list.push({ rel: parts.join('/'), size: file.size, modified: file.lastModified, getFile: async () => file });
     }
-    entries = checkSource(list);
+    $('source-label').textContent = t('source.reading');
+    entries = await findPacked(checkSource(list), manifest);
     sourceHandle = null;
     showSource(files[0].webkitRelativePath.split('/')[0]);
   } catch (error) {
@@ -315,15 +362,20 @@ async function folderSink(root, prefix) {
   };
 }
 
+// The manifest goes in last, so an extracted ZIP tells later installs what it holds (findPacked).
 function zipSink(writable, prefix) {
   const zip = new ZipWriter(writable);
   const base = prefix.join('/') + '/';
+  let manifest = null;
   return {
     existing: async () => -1,
     save: (rel, stream) => zip.add(base + rel, stream),
     readManifest: async () => null,
-    writeManifest: async () => {},
-    close: () => zip.close(),
+    writeManifest: async m => { manifest = m; },
+    async close() {
+      if (manifest) await zip.add(base + MANIFEST, new Blob([JSON.stringify(manifest)]).stream());
+      await zip.close();
+    },
   };
 }
 
@@ -396,7 +448,6 @@ async function install(toZip) {
   const lv = level();
   const tg = target();
   const prefix = TARGETS[tg].root;
-  const plan = LEVELS[lv];
   let sink;
   try {
     if (tg === 'switch' && !release) throw new Error(t('error.noswitch'));
@@ -436,12 +487,24 @@ async function install(toZip) {
   const stale = Object.keys(manifest.files).filter(rel => { const m = modeOf(rel); return m && !chosen.has(m); });
   if (stale.length)
     note(t('note.stale', { n: stale.length, modes: modeNames([...new Set(stale.map(modeOf))]) }));
+  // Files compressed already: copied, or packed again when their level is weaker than this one.
+  const already = selected().filter(e => e.packed);
+  const again = already.filter(e => argsFor(e, lv)).length;
+  const stronger = already.filter(e => e.packed !== 'unknown' && ORDER.indexOf(e.packed) > ORDER.indexOf(lv));
+  if (already.length - again) note(t('note.packed', { n: already.length - again }));
+  if (again) note(t('note.repacked', { n: again, level: levelName(lv) }));
+  if (stronger.length)
+    note(t('note.stronger', { n: stronger.length, levels: [...new Set(stronger.map(e => levelName(e.packed)))].join(', ') }));
   const jobs = [];
   for (const e of selected()) {
     const kind = kindOf(e.rel);
-    const args = kind === 'copy' ? null : plan[kind];
-    const key = `${args ? lv : 'copy'}|${(args || []).join(' ')}|${e.size}|${e.modified}`;
+    const args = argsFor(e, lv);
+    // The first field is what the output holds (findPacked reads it back): the level it was packed at,
+    // 'copy' for a game file as it ships, 'packed' for a container of unknown level.
+    const content = args ? lv : !e.packed ? 'copy' : e.packed === 'unknown' ? 'packed' : e.packed;
+    const key = `${content}|${(args || []).join(' ')}|${e.size}|${e.modified}`;
     const job = { ...e, kind, args, key, progress: 0, sunk: 0, state: 'waiting' };
+    if (e.packed && !args) job.method = t('note.already');
     const old = manifest.files[e.rel];
     if (old && old.key === key && (await sink.existing(e.rel)) === old.out) {
       job.state = 'kept';
