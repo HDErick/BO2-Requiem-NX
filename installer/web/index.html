@@ -13,91 +13,118 @@
     <header>
       <p class="platform">Black Ops 2 Requiem - Compressor</p>
       <h1>Black Ops II</h1>
-      <p>Install Zombies and Multiplayer from your own PC copy of Call of Duty: Black Ops II.</p>
+      <p id="lead" data-i18n="header.lead" hidden>Install Zombies and Multiplayer from your own PC copy of Call of Duty: Black Ops II.</p>
     </header>
-    <section class="setup" aria-label="Installer setup">
+    <section id="language" class="language" aria-labelledby="language-title">
+      <h2 id="language-title">Choose your language · Escolha seu idioma · Elige tu idioma</h2>
+      <div class="languages">
+        <button type="button" class="lang" data-lang="en" lang="en">
+          <span class="flags" aria-hidden="true">
+            <svg viewBox="0 0 190 100" class="flag"><rect width="190" height="100" fill="#b22234"/><path d="M0 11.54h190M0 26.92h190M0 42.31h190M0 57.69h190M0 73.08h190M0 88.46h190" stroke="#fff" stroke-width="7.69"/><rect width="76" height="53.85" fill="#3c3b6e"/><g fill="#fff"><circle cx="9" cy="8" r="2.6"/><circle cx="24" cy="8" r="2.6"/><circle cx="39" cy="8" r="2.6"/><circle cx="54" cy="8" r="2.6"/><circle cx="69" cy="8" r="2.6"/><circle cx="16.5" cy="17" r="2.6"/><circle cx="31.5" cy="17" r="2.6"/><circle cx="46.5" cy="17" r="2.6"/><circle cx="61.5" cy="17" r="2.6"/><circle cx="9" cy="26" r="2.6"/><circle cx="24" cy="26" r="2.6"/><circle cx="39" cy="26" r="2.6"/><circle cx="54" cy="26" r="2.6"/><circle cx="69" cy="26" r="2.6"/><circle cx="16.5" cy="35" r="2.6"/><circle cx="31.5" cy="35" r="2.6"/><circle cx="46.5" cy="35" r="2.6"/><circle cx="61.5" cy="35" r="2.6"/><circle cx="9" cy="44" r="2.6"/><circle cx="24" cy="44" r="2.6"/><circle cx="39" cy="44" r="2.6"/><circle cx="54" cy="44" r="2.6"/><circle cx="69" cy="44" r="2.6"/></g></svg>
+          </span>
+          <span class="lang-name">English</span>
+        </button>
+        <button type="button" class="lang" data-lang="pt" lang="pt-BR">
+          <span class="flags" aria-hidden="true">
+            <svg viewBox="0 0 20 14" class="flag"><rect width="20" height="14" fill="#009c3b"/><path d="M1.7 7 10 1.4 18.3 7 10 12.6z" fill="#ffdf00"/><circle cx="10" cy="7" r="3.5" fill="#002776"/><path d="M6.65 6.1q3.4-.9 6.8 1.3" stroke="#fff" stroke-width=".55" fill="none"/></svg>
+          </span>
+          <span class="lang-name">Português (Brasil)</span>
+        </button>
+        <button type="button" class="lang" data-lang="es" lang="es">
+          <span class="flags" aria-hidden="true">
+            <svg viewBox="0 0 30 20" class="flag"><rect width="30" height="20" fill="#aa151b"/><rect y="5" width="30" height="10" fill="#f1bf00"/></svg>
+            <svg viewBox="0 0 30 20" class="flag"><rect width="10" height="20" fill="#006847"/><rect x="10" width="10" height="20" fill="#fff"/><rect x="20" width="10" height="20" fill="#ce1126"/><circle cx="15" cy="10" r="2.6" fill="#8c5a2b"/></svg>
+          </span>
+          <span class="lang-name">Español</span>
+        </button>
+      </div>
+    </section>
+    <section id="setup" class="setup" data-i18n-aria="aria.setup" aria-label="Installer setup" hidden>
       <div class="step">
         <div class="grow">
-          <h2>Black Ops II folder</h2>
-          <p id="source-label">Choose the PC folder that holds <code>zone</code> and <code>sound</code>.</p>
+          <h2 data-i18n="folder.title">Black Ops II folder</h2>
+          <p id="source-label" data-i18n-html="folder.hint">Choose the PC folder that holds <code>zone</code> and <code>sound</code>.</p>
         </div>
-        <button id="source" type="button">Choose game folder</button>
+        <button id="source" type="button" data-i18n="folder.button">Choose game folder</button>
         <input id="source-files" class="visually-hidden" type="file" webkitdirectory multiple tabindex="-1">
       </div>
       <fieldset class="step choices modes" id="modes" hidden>
-        <legend><h2>Game modes</h2></legend>
+        <legend><h2 data-i18n="modes.title">Game modes</h2></legend>
         <label class="choice">
           <input type="checkbox" name="mode" value="zm">
-          <span class="name">Zombies</span>
+          <span class="name" data-i18n="mode.zm">Zombies</span>
           <span class="size" id="mode-size-zm">—</span>
           <span class="what" id="mode-what-zm"></span>
         </label>
         <label class="choice">
           <input type="checkbox" name="mode" value="mp">
-          <span class="name">Multiplayer</span>
+          <span class="name" data-i18n="mode.mp">Multiplayer</span>
           <span class="size" id="mode-size-mp">—</span>
           <span class="what" id="mode-what-mp"></span>
         </label>
         <label class="choice">
           <input type="checkbox" name="mode" value="sp">
-          <span class="name">Campaign</span>
+          <span class="name" data-i18n="mode.sp">Campaign</span>
           <span class="size" id="mode-size-sp">—</span>
           <span class="what" id="mode-what-sp"></span>
         </label>
       </fieldset>
       <fieldset class="step choices targets" id="targets">
-        <legend><h2>Platform</h2></legend>
+        <legend><h2 data-i18n="platform.title">Platform</h2></legend>
         <label class="choice">
           <input type="radio" name="target" value="android" checked>
           <span class="name">Android</span>
-          <span class="what">The game files in a <code>BO2</code> folder.</span>
+          <span class="what" data-i18n-html="platform.android.what">The game files in a <code>BO2</code> folder.</span>
         </label>
         <label class="choice">
           <input type="radio" name="target" value="switch">
           <span class="name">Nintendo Switch</span>
-          <span class="what" id="switch-what">The game in <code>switch/t6game/</code>, with the executables of the latest
-            BO2 Requiem release.</span>
+          <span class="what" id="switch-what" data-i18n-html="platform.switch.what">The game in <code>switch/t6game/</code>, with the
+            executables of the latest BO2 Requiem release.</span>
         </label>
       </fieldset>
       <fieldset class="step choices levels" id="levels">
-        <legend><h2>Compression</h2></legend>
+        <legend><h2 data-i18n="compression.title">Compression</h2></legend>
         <label class="choice">
           <input type="radio" name="level" value="lossless" checked>
-          <span class="name">Lossless</span>
+          <span class="name" data-i18n="level.lossless">Lossless</span>
           <span class="size" data-size="lossless">—</span>
-          <span class="what">Every texture and sound exactly as on PC. Image packs and loaded sound banks are
-            stored as compressed blocks the game decodes as it reads.</span>
+          <span class="what" data-i18n="level.lossless.what">Every texture and sound exactly as on PC. Image packs and loaded
+            sound banks are stored as compressed blocks the game decodes as it reads.</span>
         </label>
         <label class="choice">
           <input type="radio" name="level" value="medium">
-          <span class="name">Medium</span>
+          <span class="name" data-i18n="level.medium">Medium</span>
           <span class="size" data-size="medium">—</span>
-          <span class="what">Textures at most 512 pixels a side. Sound up to 12 kHz at 14 bits, still stereo.</span>
+          <span class="what" data-i18n="level.medium.what">Textures at most 512 pixels a side. Sound up to 12 kHz at 14 bits, still
+            stereo.</span>
         </label>
         <label class="choice">
           <input type="radio" name="level" value="maximum">
-          <span class="name">Maximum</span>
+          <span class="name" data-i18n="level.maximum">Maximum</span>
           <span class="size" data-size="maximum">—</span>
-          <span class="what">Textures at most 256 pixels a side. Sound up to 8 kHz at 12 bits, in mono.</span>
+          <span class="what" data-i18n="level.maximum.what">Textures at most 256 pixels a side. Sound up to 8 kHz at 12 bits, in
+            mono.</span>
         </label>
       </fieldset>
       <div class="action">
         <p id="summary">Your game files stay on this device.</p>
-        <button id="cancel" type="button" hidden>Cancel</button>
-        <button id="zip" type="button" disabled>Save as ZIP</button>
-        <button id="install" class="primary" type="button" disabled>Install to folder</button>
+        <button id="cancel" type="button" data-i18n="button.cancel" hidden>Cancel</button>
+        <button id="zip" type="button" data-i18n="button.zip" disabled>Save as ZIP</button>
+        <button id="install" class="primary" type="button" data-i18n="button.install" disabled>Install to folder</button>
       </div>
     </section>
-    <section id="result" class="result" aria-label="Installation progress" hidden>
+    <section id="result" class="result" data-i18n-aria="aria.result" aria-label="Installation progress" hidden>
       <p id="status" role="status"></p>
-      <progress id="progress" max="1" value="0" aria-label="Installation progress"></progress>
+      <progress id="progress" max="1" value="0" data-i18n-aria="aria.result" aria-label="Installation progress"></progress>
       <p id="detail" class="detail"></p>
-      <details id="report"><summary>Report</summary><ul id="log"></ul></details>
+      <details id="report"><summary data-i18n="report">Report</summary><ul id="log"></ul></details>
     </section>
-    <footer>
-      <span>Install to folder: your device's storage, the SD card or a staging folder (desktop Chrome or Edge).
-        Save as ZIP: any current desktop browser.</span>
+    <footer id="footer" hidden>
+      <span data-i18n="footer.where">Install to folder: your device's storage, the SD card or a staging folder (desktop Chrome or
+        Edge). Save as ZIP: any current desktop browser.</span>
       <span id="release-note"></span>
+      <button id="change-language" class="link" type="button" data-i18n="language.change">Language</button>
     </footer>
   </main>
 </body>

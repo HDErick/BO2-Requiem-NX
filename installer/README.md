@@ -6,6 +6,8 @@ Installs Black Ops II Zombies and Multiplayer from your own PC copy, for **Andro
 **Nintendo Switch**, with optional compression. It runs entirely in your browser: your game files
 are read on your device and never uploaded.
 
+0. **Choose a language**: English, Português (Brasil) or Español. The page shows everything in that
+   language; the **Language** link at the bottom changes it.
 1. **Choose game folder**: the PC folder that holds `zone` and `sound` (the one with `t6zm.exe`).
 2. Pick the game modes. The page shows which of Zombies, Multiplayer and Campaign your copy has,
    and how big each one is. Only the checked modes are installed.

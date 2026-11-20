@@ -2,8 +2,10 @@
 // Runs entirely in the browser (GitHub Pages or any static server). Game files are read in place;
 // image packs and sound banks are packed by t6pack (WebAssembly, web/generated) in Web Workers
 // (worker.js) through the origin's private storage, and every result is streamed to the chosen
-// folder or into a ZIP. Nothing is uploaded.
+// folder or into a ZIP. Nothing is uploaded. The text is in English, Portuguese or Spanish (i18n.mjs),
+// chosen on the first screen.
 import { ZipWriter } from './zip-writer.mjs';
+import { LANGUAGES, language, setLanguage, t } from './i18n.mjs';
 
 const $ = id => document.getElementById(id);
 const MANIFEST = '.t6installer.json';
@@ -35,9 +37,9 @@ const SKIP = /\.(log|dmp|mdmp|part|tmp)$/i;
 // Each zone loads only the image pack of its own name, so leaving a mode out never takes anything another
 // mode reads. BO2 Requiem plays Zombies and Multiplayer; Campaign is off by default.
 const MODES = {
-  zm: { label: 'Zombies', core: 'zone/all/common_zm.ff', what: 'The Zombies maps, sound and videos.' },
-  mp: { label: 'Multiplayer', core: 'zone/all/common_mp.ff', what: 'The Multiplayer maps, factions and sound.' },
-  sp: { label: 'Campaign', core: 'zone/all/frontend.ff', what: 'Not playable in BO2 Requiem yet.' },
+  zm: { core: 'zone/all/common_zm.ff' },   // names and descriptions: i18n.mjs, mode.zm / mode.zm.what
+  mp: { core: 'zone/all/common_mp.ff' },
+  sp: { core: 'zone/all/frontend.ff' },
 };
 const SP_ZONE = /^(afghanistan|angola|blackout|haiti|karma|la_1|la_1b|la_2|monsoon|nicaragua|pakistan|panama|yemen|frontend)(_|$)|^so_(cmp|rts|tut)_|^su_|^(sp|common|patch|weapon_attach_shared)$/;
 const SP_VIDEO = /^(a[1-3]_|b[1-3]_|c[1-3]_|a7x|afghanistan|angola|blackout|haiti|karma|la_|monsoon|nicaragua|pakistan|panama|yemen|frontend_load|so_|strike_force|vtol_outro|crc_part|eye_v5|generalstore|sam_gizmos|spider_bootup|prologue)/;
@@ -68,6 +70,7 @@ let entries = null;      // [{ rel, size, modified, getFile, mode }]
 let modes = null;        // per mode: { files, bytes, installed }
 const chosen = new Set();   // the modes to install
 let sourceHandle = null;
+let sourceName = '';
 let release = null;      // the Switch executables published with the site: { tag, name, files: [{ name, size }] }
 let run = null;          // the running install
 
@@ -79,7 +82,8 @@ const level = () => document.querySelector('input[name=level]:checked').value;
 const target = () => document.querySelector('input[name=target]:checked').value;
 const selected = () => entries.filter(e => !e.mode || chosen.has(e.mode));
 const playable = () => chosen.has('zm') || chosen.has('mp');
-const modeNames = list => Object.keys(MODES).filter(m => list.includes(m)).map(m => MODES[m].label).join(', ');
+const modeNames = list => Object.keys(MODES).filter(m => list.includes(m)).map(m => t(`mode.${m}`)).join(', ');
+const levelName = lv => t(`level.${lv}`).toUpperCase();
 const sizeText = n => n < 1e9 ? Math.max(1, Math.round(n / 1e6)) + ' MB' : gb(n);
 
 // The latest BO2 Requiem release's NROs, copied next to the page when it is published
@@ -90,14 +94,16 @@ async function loadRelease() {
     if (!response.ok) throw new Error(response.statusText);
     release = await response.json();
     if (!release.files || !release.files.length) throw new Error('no executables');
-    $('release-note').textContent = `Nintendo Switch executables: BO2 Requiem ${release.name || release.tag}.`;
-    $('release-note').className = '';
   } catch {
     release = null;
-    $('release-note').textContent = 'The Nintendo Switch executables are not available on this page right now.';
-    $('release-note').className = 'warn';
   }
+  showRelease();
   updateButtons();
+}
+
+function showRelease() {
+  $('release-note').textContent = release ? t('release.ok', { name: release.name || release.tag }) : t('release.missing');
+  $('release-note').className = release ? '' : 'warn';
 }
 
 function kindOf(rel) {
@@ -132,7 +138,7 @@ async function listFolder(dir, path, out) {
 
 function checkSource(list) {
   if (!list.some(e => e.rel.toLowerCase().startsWith('zone/all/')) || !list.some(e => e.rel.toLowerCase().startsWith('sound/')))
-    throw new Error('Choose the Black Ops II folder that holds zone\\all and sound (the one with t6zm.exe).');
+    throw new Error(t('source.bad'));
   for (const e of list) e.mode = modeOf(e.rel);
   return list.sort((a, b) => a.rel.localeCompare(b.rel));
 }
@@ -153,11 +159,17 @@ function findModes() {
     box.closest('.choice').hidden = !info.files;
     box.checked = info.installed && m !== 'sp';
     if (box.checked) chosen.add(m);
-    $(`mode-size-${m}`).textContent = sizeText(info.bytes);
-    $(`mode-what-${m}`).textContent = info.installed ? MODES[m].what
-      : `Not installed: only ${info.files} leftover files, which the game does not use without the rest.`;
   }
   $('modes').hidden = !Object.values(modes).some(i => i.files);
+  showModes();
+}
+
+function showModes() {
+  for (const m of Object.keys(MODES)) {
+    const info = modes[m];
+    $(`mode-size-${m}`).textContent = sizeText(info.bytes);
+    $(`mode-what-${m}`).textContent = info.installed ? t(`mode.${m}.what`) : t('mode.leftover', { n: info.files });
+  }
 }
 
 function status(text) {
@@ -169,18 +181,24 @@ function updateButtons() {
   const ready = !!entries && !run && (target() !== 'switch' || !!release) && playable();
   $('install').disabled = !ready || !canPickFolders || !hasPrivateStorage;
   $('zip').disabled = !ready || !(canSaveFile || canStreamDownload) || !hasPrivateStorage;
-  $('install').title = !canPickFolders ? 'Installing to a folder needs desktop Chrome or Edge; use Save as ZIP.' : '';
-  if (!hasPrivateStorage) $('summary').textContent = 'This browser has no origin-private storage: use a current Chrome, Edge, Firefox or Safari.';
+  $('install').title = !canPickFolders ? t('needs.chrome') : '';
+  $('change-language').disabled = !!run;
+  if (!hasPrivateStorage) $('summary').textContent = t('needs.opfs');
   else summary();
 }
 
 function showSource(name) {
+  sourceName = name;
   findModes();
+  showSourceLabel();
+  showSizes();
+}
+
+function showSourceLabel() {
   const total = entries.reduce((a, e) => a + e.size, 0);
   const found = Object.keys(MODES).filter(m => modes[m].installed);
-  $('source-label').textContent = `${name}: ${entries.length} files, ${gb(total)}` +
-    (found.length ? ` — ${modeNames(found)}.` : ' — no game mode found.');
-  showSizes();
+  $('source-label').textContent = t('source.label', { name: sourceName, files: entries.length, size: gb(total) }) +
+    (found.length ? t('source.modes', { modes: modeNames(found) }) : t('source.nomode'));
 }
 
 // The levels' estimates, for the chosen modes.
@@ -189,39 +207,37 @@ function showSizes() {
   for (const e of selected()) sizes[kindOf(e.rel)] += e.size;
   for (const el of document.querySelectorAll('[data-size]')) {
     const r = RATIOS[el.dataset.size];
-    el.textContent = 'about ' + gb(sizes.copy + sizes.ipak * r.ipak + sizes.sabs * r.sabs + sizes.sabl * r.sabl);
+    el.textContent = t('size.about', { size: gb(sizes.copy + sizes.ipak * r.ipak + sizes.sabs * r.sabs + sizes.sabl * r.sabl) });
   }
 }
 
 function summary() {
   if (run) return;
   if (!entries) {
-    $('summary').textContent = 'Your game files stay on this device.';
+    $('summary').textContent = t('summary.idle');
     return;
   }
   if (target() === 'switch' && !release) {
-    $('summary').textContent = 'The Nintendo Switch executables could not be loaded: reload the page, or choose Android.';
+    $('summary').textContent = t('summary.noswitch');
     return;
   }
   if (!playable()) {
-    $('summary').textContent = modes && (modes.zm.installed || modes.mp.installed)
-      ? 'Choose Zombies or Multiplayer: BO2 Requiem plays those two.'
-      : 'This folder has neither Zombies nor Multiplayer: BO2 Requiem plays those two.';
+    $('summary').textContent = modes && (modes.zm.installed || modes.mp.installed) ? t('summary.choose') : t('summary.nomodes');
     return;
   }
   const list = selected();
   const total = list.reduce((a, e) => a + e.size, 0);
   const el = document.querySelector(`[data-size=${level()}]`);
   const where = TARGETS[target()].root.join('/') + '/';
-  $('summary').textContent = `${modeNames([...chosen])}: ${list.length} files, ${gb(total)} → ${el.textContent} in ${where} ` +
-    `for ${TARGETS[target()].label}. Your files stay on this device.`;
+  $('summary').textContent = t('summary.plan', { modes: modeNames([...chosen]), files: list.length, size: gb(total),
+    out: el.textContent, where, target: TARGETS[target()].label });
 }
 
 async function pickSource() {
   if (!canPickFolders) { $('source-files').click(); return; }
   try {
     const dir = await showDirectoryPicker({ id: 't6-source', mode: 'read' });
-    $('source-label').textContent = 'Reading the game folder…';
+    $('source-label').textContent = t('source.reading');
     entries = checkSource(await listFolder(dir, [], []));
     sourceHandle = dir;
     showSource(dir.name);
@@ -315,7 +331,7 @@ function zipSink(writable, prefix) {
 async function serviceWorkerWritable(name) {
   const registration = await navigator.serviceWorker.ready;
   const worker = registration.active;
-  if (!worker) throw new Error('The download helper is not ready yet. Reload the page and try again.');
+  if (!worker) throw new Error(t('error.helper'));
   const channel = new MessageChannel();
   const port = channel.port1;
   let credits = 0, cancelled = false, wake = null;
@@ -383,7 +399,7 @@ async function install(toZip) {
   const plan = LEVELS[lv];
   let sink;
   try {
-    if (tg === 'switch' && !release) throw new Error('The Nintendo Switch executables could not be loaded: reload the page.');
+    if (tg === 'switch' && !release) throw new Error(t('error.noswitch'));
     if (toZip) {
       const name = `BO2-Requiem-${tg === 'switch' ? 'Switch' : 'Android'}-${lv}.zip`;
       const writable = canSaveFile
@@ -393,7 +409,7 @@ async function install(toZip) {
     } else {
       const root = await showDirectoryPicker({ id: 't6-dest', mode: 'readwrite' });
       if (sourceHandle && ((await sourceHandle.resolve(root)) !== null || (await root.resolve(sourceHandle)) !== null))
-        throw new Error('Choose a folder outside the Black Ops II folder.');
+        throw new Error(t('error.outside'));
       sink = await folderSink(root, prefix);
     }
   } catch (error) {
@@ -406,7 +422,7 @@ async function install(toZip) {
   for (const el of [$('source'), $('modes'), $('levels'), $('targets'), $('install'), $('zip')]) el.disabled = true;
   $('cancel').hidden = false;
   $('log').replaceChildren();
-  status(`Installing (${TARGETS[tg].label}, ${lv.toUpperCase()})…`);
+  status(t('run.start', { target: TARGETS[tg].label, level: levelName(lv) }));
   const note = text => {
     r.log.push(text);
     const li = document.createElement('li');
@@ -416,11 +432,10 @@ async function install(toZip) {
 
   const manifest = (await sink.readManifest()) || { version: 1, files: {} };
   for (const m of Object.keys(MODES))
-    if (modes[m].files && !chosen.has(m)) note(`Left out: ${MODES[m].label} (${modes[m].files} files, ${gb(modes[m].bytes)}).`);
+    if (modes[m].files && !chosen.has(m)) note(t('note.leftout', { mode: t(`mode.${m}`), files: modes[m].files, size: sizeText(modes[m].bytes) }));
   const stale = Object.keys(manifest.files).filter(rel => { const m = modeOf(rel); return m && !chosen.has(m); });
   if (stale.length)
-    note(`${stale.length} files of ${modeNames([...new Set(stale.map(modeOf))])} from an earlier install are still in the folder; ` +
-      'delete them by hand if you do not want them.');
+    note(t('note.stale', { n: stale.length, modes: modeNames([...new Set(stale.map(modeOf))]) }));
   const jobs = [];
   for (const e of selected()) {
     const kind = kindOf(e.rel);
@@ -442,7 +457,7 @@ async function install(toZip) {
         rel: f.name, size: f.size, kind: 'copy', args: null, key: 'nro', progress: 0, sunk: 0, state: 'waiting',
         getFile: async () => {
           const response = await fetch('./release/' + encodeURIComponent(f.name), { cache: 'no-cache' });
-          if (!response.ok) throw new Error(`${f.name} could not be downloaded from this page (${response.status}).`);
+          if (!response.ok) throw new Error(t('error.nro', { name: f.name, status: response.status }));
           return response.blob();
         },
       });
@@ -450,7 +465,7 @@ async function install(toZip) {
   }
   const total = jobs.reduce((a, j) => a + j.size, 0);
   const kept = jobs.filter(j => j.state === 'kept').length;
-  if (kept) note(`${kept} files already installed with these settings are kept.`);
+  if (kept) note(t('note.kept', { n: kept }));
 
   // Copied files are ready at once; packed ones when their worker finishes (placed first, to free
   // the private storage they take).
@@ -476,10 +491,12 @@ async function install(toZip) {
     const elapsed = (performance.now() - started) / 1000;
     $('progress').value = fraction;
     if (!r.finished) {
-      status(`Installing (${TARGETS[tg].label}, ${lv.toUpperCase()}) — ${Math.floor(fraction * 100)}%: ${[...r.current].slice(0, 3).join(', ') || '…'}`);
+      status(t('run.progress', { target: TARGETS[tg].label, level: levelName(lv), pct: Math.floor(fraction * 100),
+        current: [...r.current].slice(0, 3).join(', ') || '…' }));
       const eta = fraction > 0.02 ? elapsed / fraction - elapsed : null;
-      $('detail').textContent = `${jobs.filter(j => j.state === 'written' || j.state === 'kept').length} of ${jobs.length} files · ` +
-        `${gb(r.read)} read → ${gb(r.written)} written · ${minutes(elapsed)}` + (eta ? ` · about ${minutes(eta)} left` : '');
+      $('detail').textContent = t('run.detail', { done: jobs.filter(j => j.state === 'written' || j.state === 'kept').length,
+        total: jobs.length, read: gb(r.read), written: gb(r.written), time: minutes(elapsed) }) +
+        (eta ? t('run.eta', { time: minutes(eta) }) : '');
     }
   }, 500);
 
@@ -488,7 +505,7 @@ async function install(toZip) {
     const root = await navigator.storage.getDirectory();
     tmpDir = await root.getDirectoryHandle('t6pack-tmp', { create: true });
     const quota = await navigator.storage.estimate?.();
-    if (quota && quota.quota - quota.usage < 4e9) note(`Warning: the browser allows this page only ${gb(quota.quota - quota.usage)} of temporary storage; large image packs may not fit.`);
+    if (quota && quota.quota - quota.usage < 4e9) note(t('note.quota', { size: gb(quota.quota - quota.usage) }));
 
     // Workers: each takes the largest waiting file; no more packed outputs wait than there are workers.
     const count = Math.min(workerCount(), Math.max(1, packQueue.length));
@@ -506,7 +523,7 @@ async function install(toZip) {
             if (data.progress !== undefined) job.progress = data.progress;
             else resolve(data);
           };
-          worker.onerror = event => resolve({ error: event.message || 'the packing worker stopped' });
+          worker.onerror = event => resolve({ error: event.message || t('error.worker') });
           job.getFile().then(file => worker.postMessage({ id, file, args: [...job.args, '--level', ZSTD_LEVEL, '--threads', '1'] }),
             error => resolve({ error: error.message }));
         });
@@ -514,7 +531,7 @@ async function install(toZip) {
         job.progress = 1;
         if (reply.error) {
           // The game still works with the original file: copy it and say so.
-          note(`${job.rel}: could not be packed (${reply.error}); copied as it is.`);
+          note(t('note.packfail', { file: job.rel, error: reply.error }));
           job.args = null;
           job.sunk = 0;
           pushReady(job, true);
@@ -554,7 +571,7 @@ async function install(toZip) {
       toSink--;
       if (job.key !== 'nro') manifest.files[job.rel] = { key: job.key, out: written };
       if (job.args || job.size > 64e6 || job.key === 'nro')
-        note(`${job.rel}: ${(job.size / 1e6).toFixed(1)} → ${(written / 1e6).toFixed(1)} MB (${job.key === 'nro' ? 'BO2 Requiem ' + (release.name || release.tag) : job.method || 'copy'})`);
+        note(`${job.rel}: ${(job.size / 1e6).toFixed(1)} → ${(written / 1e6).toFixed(1)} MB (${job.key === 'nro' ? 'BO2 Requiem ' + (release.name || release.tag) : job.method || t('note.copy')})`);
       if (toSink % 25 === 0) await sink.writeManifest(manifest).catch(() => {});
     }
     await packers;
@@ -562,18 +579,18 @@ async function install(toZip) {
     await sink.close();
     r.finished = true;
     const seconds = (performance.now() - started) / 1000;
-    $('detail').textContent = `${jobs.length} of ${jobs.length} files · ${gb(r.read)} read → ${gb(r.written)} written · ${minutes(seconds)}`;
+    $('detail').textContent = t('run.detail', { done: jobs.length, total: jobs.length, read: gb(r.read), written: gb(r.written),
+      time: minutes(seconds) });
     const where = prefix.join('/') + '/';
-    status(`Done in ${minutes(seconds)}: ${gb(r.read)} → ${gb(r.written)}. ` + (tg === 'switch'
-      ? (toZip ? 'Extract the ZIP to the root of the SD card (it holds switch/t6game/), then open t6game from hbmenu in application mode.'
-               : 'Copy the switch folder to the SD card\'s root if this was a staging folder, then open t6game from hbmenu in application mode.')
-      : (toZip ? `The ZIP holds ${where} with the game files for Android.` : `The game files for Android are in ${where}.`)));
-    note(`Done: ${gb(r.read)} → ${gb(r.written)} in ${minutes(seconds)}.`);
+    status(t('done', { time: minutes(seconds), read: gb(r.read), written: gb(r.written) }) + (tg === 'switch'
+      ? t(toZip ? 'done.switch.zip' : 'done.switch.folder')
+      : t(toZip ? 'done.android.zip' : 'done.android.folder', { where })));
+    note(t('note.done', { read: gb(r.read), written: gb(r.written), time: minutes(seconds) }));
   } catch (error) {
     failure = error;
     r.finished = true;
-    if (error.name === 'AbortError') status('Cancelled. ' + (toZip ? 'The ZIP is incomplete.' : 'Install again to continue: finished files are kept.'));
-    else status('Error: ' + (error.message || String(error)));
+    if (error.name === 'AbortError') status(t(toZip ? 'cancelled.zip' : 'cancelled.folder'));
+    else status(t('error', { message: error.message || String(error) }));
     await sink.writeManifest(manifest).catch(() => {});
   } finally {
     clearInterval(timer);
@@ -590,7 +607,7 @@ async function install(toZip) {
 $('source').addEventListener('click', pickSource);
 $('install').addEventListener('click', () => install(false));
 $('zip').addEventListener('click', () => install(true));
-$('cancel').addEventListener('click', () => { if (run) { run.cancelled = true; for (const w of run.workers) w.terminate(); status('Cancelling…'); } });
+$('cancel').addEventListener('click', () => { if (run) { run.cancelled = true; for (const w of run.workers) w.terminate(); status(t('run.cancelling')); } });
 for (const radio of document.querySelectorAll('input[name=level], input[name=target]')) radio.addEventListener('change', updateButtons);
 for (const box of document.querySelectorAll('input[name=mode]'))
   box.addEventListener('change', () => {
@@ -598,5 +615,40 @@ for (const box of document.querySelectorAll('input[name=mode]'))
     if (entries) showSizes();
     updateButtons();
   });
+
+// ---- the language: asked first, before the setup -----------------------------------------------
+const LANGUAGE_KEY = 't6-installer-language';
+function savedLanguage() {
+  try { return localStorage.getItem(LANGUAGE_KEY); } catch { return null; }
+}
+
+// The page's text again in the chosen language, with what the setup already shows.
+function chooseLanguage(lang) {
+  setLanguage(lang);
+  try { localStorage.setItem(LANGUAGE_KEY, language()); } catch {}
+  for (const button of document.querySelectorAll('.lang')) button.classList.toggle('current', button.dataset.lang === language());
+  showRelease();
+  if (entries) { showSourceLabel(); showModes(); showSizes(); }
+  updateButtons();
+  $('language').hidden = true;
+  $('lead').hidden = false;
+  $('setup').hidden = false;
+  $('footer').hidden = false;
+}
+
+for (const button of document.querySelectorAll('.lang')) button.addEventListener('click', () => chooseLanguage(button.dataset.lang));
+$('change-language').addEventListener('click', () => {
+  if (run) return;
+  $('setup').hidden = true;
+  $('footer').hidden = true;
+  $('language').hidden = false;
+  document.querySelector('.lang.current')?.focus();
+});
+{
+  // The last choice is marked and focused, so Enter takes it again.
+  const last = savedLanguage();
+  const button = last && LANGUAGES[last] && document.querySelector(`.lang[data-lang=${last}]`);
+  if (button) { button.classList.add('current'); button.focus(); }
+}
 updateButtons();
 loadRelease();

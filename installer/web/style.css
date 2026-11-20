@@ -66,3 +66,19 @@ footer { display: flex; justify-content: space-between; gap: .5rem 1rem; flex-wr
 @media (min-width: 641px) { fieldset.targets { grid-template-columns: repeat(2, 1fr); } }
 #release-note.warn { color: var(--accent); }
 fieldset[hidden], .choice[hidden] { display: none; }
+/* The language screen, before the setup */
+.language { border: 1px solid var(--border); background: var(--panel); border-radius: .65rem; padding: 1.3rem; }
+.language[hidden], footer[hidden] { display: none; }
+.language h2 { margin-bottom: 1rem; font-weight: 650; }
+.languages { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+.lang { display: flex; flex-direction: column; align-items: center; gap: .7rem; padding: 1.2rem .9rem; background: #262722;
+  border-radius: .5rem; white-space: normal; }
+.lang:hover { background: #2d2e28; }
+.lang.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.flags { display: flex; gap: .45rem; }
+.flag { display: block; height: 2.6rem; width: auto; border-radius: .2rem; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); }
+.lang-name { font-size: 1rem; }
+button.link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; text-decoration: underline;
+  text-underline-offset: .2em; }
+button.link:disabled { color: var(--muted); text-decoration: none; }
+@media (max-width: 640px) { .languages { grid-template-columns: 1fr; } .lang { flex-direction: row; justify-content: flex-start; } }
