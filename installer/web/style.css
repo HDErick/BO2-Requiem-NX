@@ -65,3 +65,4 @@ footer { display: flex; justify-content: space-between; gap: .5rem 1rem; flex-wr
 .optional { color: var(--muted); font-weight: 500; font-size: .8rem; margin-left: .4rem; text-transform: uppercase; letter-spacing: .06em; }
 @media (min-width: 641px) { fieldset.targets { grid-template-columns: repeat(2, 1fr); } }
 #release-note.warn { color: var(--accent); }
+fieldset[hidden], .choice[hidden] { display: none; }

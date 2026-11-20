@@ -29,12 +29,44 @@ const RATIOS = {
 };
 const SKIP = /\.(log|dmp|mdmp|part|tmp)$/i;
 
+// The game modes, told apart by file name (the retail PC layout; checked against a complete Steam copy and a
+// Multiplayer + Zombies one). A mode is installed when its main zone is there; the files no mode claims
+// (base.ipak, so.ipak, the dlc packs, weapons, code_pre_gfx, the shared sound and videos, main/) always go.
+// Each zone loads only the image pack of its own name, so leaving a mode out never takes anything another
+// mode reads. BO2 Requiem plays Zombies and Multiplayer; Campaign is off by default.
+const MODES = {
+  zm: { label: 'Zombies', core: 'zone/all/common_zm.ff', what: 'The Zombies maps, sound and videos.' },
+  mp: { label: 'Multiplayer', core: 'zone/all/common_mp.ff', what: 'The Multiplayer maps, factions and sound.' },
+  sp: { label: 'Campaign', core: 'zone/all/frontend.ff', what: 'Not playable in BO2 Requiem yet.' },
+};
+const SP_ZONE = /^(afghanistan|angola|blackout|haiti|karma|la_1|la_1b|la_2|monsoon|nicaragua|pakistan|panama|yemen|frontend)(_|$)|^so_(cmp|rts|tut)_|^su_|^(sp|common|patch|weapon_attach_shared)$/;
+const SP_VIDEO = /^(a[1-3]_|b[1-3]_|c[1-3]_|a7x|afghanistan|angola|blackout|haiti|karma|la_|monsoon|nicaragua|pakistan|panama|yemen|frontend_load|so_|strike_force|vtol_outro|crc_part|eye_v5|generalstore|sam_gizmos|spider_bootup|prologue)/;
+
+// 'zm', 'mp', 'sp', or null for a file every mode uses.
+function modeOf(rel) {
+  const parts = rel.toLowerCase().split('/');
+  const file = parts.at(-1);
+  if (parts.length === 1) return { 'localization.txt': 'sp', 'localization_mp.txt': 'mp', 'localization_zm.txt': 'zm' }[file] || null;
+  if (parts[0] === 'video') return file.startsWith('zm_') ? 'zm' : file.startsWith('mp_') ? 'mp' : SP_VIDEO.test(file) ? 'sp' : null;
+  if (parts[0] === 'sound')
+    return file.startsWith('zmb_') ? 'zm' : file.startsWith('mpl_') ? 'mp' : /^(spl_|so_(cmp|rts|tut)_)/.test(file) ? 'sp' : null;
+  if (parts[0] !== 'zone' || parts.length !== 3) return null;
+  let name = file.replace(/\.[^.]+$/, '');
+  if (parts[1] !== 'all') name = name.replace(/^[a-z]{2}_/, '');   // zone/english/en_mp_la.ff: mp_la
+  if (SP_ZONE.test(name)) return 'sp';
+  if (/^zm$|^zm_|_zm$|^so_z|^dlczm/.test(name)) return 'zm';
+  if (/^mp$|^mp_|_mp$|^faction_/.test(name)) return 'mp';
+  return null;
+}
+
 const canPickFolders = typeof showDirectoryPicker === 'function';
 const canSaveFile = typeof showSaveFilePicker === 'function';
 const canStreamDownload = 'serviceWorker' in navigator && typeof ReadableStream === 'function';
 const hasPrivateStorage = !!(navigator.storage && navigator.storage.getDirectory);
 
-let entries = null;      // [{ rel, size, modified, getFile }]
+let entries = null;      // [{ rel, size, modified, getFile, mode }]
+let modes = null;        // per mode: { files, bytes, installed }
+const chosen = new Set();   // the modes to install
 let sourceHandle = null;
 let release = null;      // the Switch executables published with the site: { tag, name, files: [{ name, size }] }
 let run = null;          // the running install
@@ -45,6 +77,10 @@ const gb = n => (n / 1e9).toFixed(n >= 1e10 ? 1 : 2) + ' GB';
 const minutes = s => s < 90 ? Math.round(s) + ' s' : Math.round(s / 60) + ' min';
 const level = () => document.querySelector('input[name=level]:checked').value;
 const target = () => document.querySelector('input[name=target]:checked').value;
+const selected = () => entries.filter(e => !e.mode || chosen.has(e.mode));
+const playable = () => chosen.has('zm') || chosen.has('mp');
+const modeNames = list => Object.keys(MODES).filter(m => list.includes(m)).map(m => MODES[m].label).join(', ');
+const sizeText = n => n < 1e9 ? Math.max(1, Math.round(n / 1e6)) + ' MB' : gb(n);
 
 // The latest BO2 Requiem release's NROs, copied next to the page when it is published
 // (fetch_release.py): GitHub's release downloads cannot be read from another origin.
@@ -97,7 +133,31 @@ async function listFolder(dir, path, out) {
 function checkSource(list) {
   if (!list.some(e => e.rel.toLowerCase().startsWith('zone/all/')) || !list.some(e => e.rel.toLowerCase().startsWith('sound/')))
     throw new Error('Choose the Black Ops II folder that holds zone\\all and sound (the one with t6zm.exe).');
+  for (const e of list) e.mode = modeOf(e.rel);
   return list.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+
+// Which modes the folder has, and the checkboxes for them: installed modes on (Campaign off), leftovers of a
+// mode without its main zone (the English campaign zones of a Multiplayer + Zombies copy) off.
+function findModes() {
+  modes = {};
+  for (const m of Object.keys(MODES)) modes[m] = { files: 0, bytes: 0, installed: false };
+  for (const e of entries) {
+    if (e.mode) { modes[e.mode].files++; modes[e.mode].bytes += e.size; }
+    for (const m of Object.keys(MODES)) if (e.rel.toLowerCase() === MODES[m].core) modes[m].installed = true;
+  }
+  chosen.clear();
+  for (const m of Object.keys(MODES)) {
+    const box = document.querySelector(`input[name=mode][value=${m}]`);
+    const info = modes[m];
+    box.closest('.choice').hidden = !info.files;
+    box.checked = info.installed && m !== 'sp';
+    if (box.checked) chosen.add(m);
+    $(`mode-size-${m}`).textContent = sizeText(info.bytes);
+    $(`mode-what-${m}`).textContent = info.installed ? MODES[m].what
+      : `Not installed: only ${info.files} leftover files, which the game does not use without the rest.`;
+  }
+  $('modes').hidden = !Object.values(modes).some(i => i.files);
 }
 
 function status(text) {
@@ -106,7 +166,7 @@ function status(text) {
 }
 
 function updateButtons() {
-  const ready = !!entries && !run && (target() !== 'switch' || !!release);
+  const ready = !!entries && !run && (target() !== 'switch' || !!release) && playable();
   $('install').disabled = !ready || !canPickFolders || !hasPrivateStorage;
   $('zip').disabled = !ready || !(canSaveFile || canStreamDownload) || !hasPrivateStorage;
   $('install').title = !canPickFolders ? 'Installing to a folder needs desktop Chrome or Edge; use Save as ZIP.' : '';
@@ -115,11 +175,18 @@ function updateButtons() {
 }
 
 function showSource(name) {
+  findModes();
+  const total = entries.reduce((a, e) => a + e.size, 0);
+  const found = Object.keys(MODES).filter(m => modes[m].installed);
+  $('source-label').textContent = `${name}: ${entries.length} files, ${gb(total)}` +
+    (found.length ? ` — ${modeNames(found)}.` : ' — no game mode found.');
+  showSizes();
+}
+
+// The levels' estimates, for the chosen modes.
+function showSizes() {
   const sizes = { ipak: 0, sabs: 0, sabl: 0, copy: 0 };
-  for (const e of entries) sizes[kindOf(e.rel)] += e.size;
-  const total = Object.values(sizes).reduce((a, b) => a + b, 0);
-  $('source-label').textContent = `${name}: ${entries.length} files, ${gb(total)} — image packs ${gb(sizes.ipak)}, ` +
-    `sound ${gb(sizes.sabs + sizes.sabl)}, other ${gb(sizes.copy)}.`;
+  for (const e of selected()) sizes[kindOf(e.rel)] += e.size;
   for (const el of document.querySelectorAll('[data-size]')) {
     const r = RATIOS[el.dataset.size];
     el.textContent = 'about ' + gb(sizes.copy + sizes.ipak * r.ipak + sizes.sabs * r.sabs + sizes.sabl * r.sabl);
@@ -136,11 +203,18 @@ function summary() {
     $('summary').textContent = 'The Nintendo Switch executables could not be loaded: reload the page, or choose Android.';
     return;
   }
-  const total = entries.reduce((a, e) => a + e.size, 0);
+  if (!playable()) {
+    $('summary').textContent = modes && (modes.zm.installed || modes.mp.installed)
+      ? 'Choose Zombies or Multiplayer: BO2 Requiem plays those two.'
+      : 'This folder has neither Zombies nor Multiplayer: BO2 Requiem plays those two.';
+    return;
+  }
+  const list = selected();
+  const total = list.reduce((a, e) => a + e.size, 0);
   const el = document.querySelector(`[data-size=${level()}]`);
   const where = TARGETS[target()].root.join('/') + '/';
-  $('summary').textContent = `${entries.length} files, ${gb(total)} → ${el.textContent} in ${where} for ${TARGETS[target()].label}. ` +
-    'Your files stay on this device.';
+  $('summary').textContent = `${modeNames([...chosen])}: ${list.length} files, ${gb(total)} → ${el.textContent} in ${where} ` +
+    `for ${TARGETS[target()].label}. Your files stay on this device.`;
 }
 
 async function pickSource() {
@@ -329,7 +403,7 @@ async function install(toZip) {
 
   const started = performance.now();
   const r = run = { cancelled: false, workers: [], log: [], read: 0, written: 0, current: new Set() };
-  for (const el of [$('source'), $('levels'), $('targets'), $('install'), $('zip')]) el.disabled = true;
+  for (const el of [$('source'), $('modes'), $('levels'), $('targets'), $('install'), $('zip')]) el.disabled = true;
   $('cancel').hidden = false;
   $('log').replaceChildren();
   status(`Installing (${TARGETS[tg].label}, ${lv.toUpperCase()})…`);
@@ -341,8 +415,14 @@ async function install(toZip) {
   };
 
   const manifest = (await sink.readManifest()) || { version: 1, files: {} };
+  for (const m of Object.keys(MODES))
+    if (modes[m].files && !chosen.has(m)) note(`Left out: ${MODES[m].label} (${modes[m].files} files, ${gb(modes[m].bytes)}).`);
+  const stale = Object.keys(manifest.files).filter(rel => { const m = modeOf(rel); return m && !chosen.has(m); });
+  if (stale.length)
+    note(`${stale.length} files of ${modeNames([...new Set(stale.map(modeOf))])} from an earlier install are still in the folder; ` +
+      'delete them by hand if you do not want them.');
   const jobs = [];
-  for (const e of entries) {
+  for (const e of selected()) {
     const kind = kindOf(e.rel);
     const args = kind === 'copy' ? null : plan[kind];
     const key = `${args ? lv : 'copy'}|${(args || []).join(' ')}|${e.size}|${e.modified}`;
@@ -501,7 +581,7 @@ async function install(toZip) {
     await clearTemp().catch(() => {});
     run = null;
     $('cancel').hidden = true;
-    for (const el of [$('source'), $('levels'), $('targets')]) el.disabled = false;
+    for (const el of [$('source'), $('modes'), $('levels'), $('targets')]) el.disabled = false;
     updateButtons();
     $('progress').value = failure ? $('progress').value : 1;
   }
@@ -512,5 +592,11 @@ $('install').addEventListener('click', () => install(false));
 $('zip').addEventListener('click', () => install(true));
 $('cancel').addEventListener('click', () => { if (run) { run.cancelled = true; for (const w of run.workers) w.terminate(); status('Cancelling…'); } });
 for (const radio of document.querySelectorAll('input[name=level], input[name=target]')) radio.addEventListener('change', updateButtons);
+for (const box of document.querySelectorAll('input[name=mode]'))
+  box.addEventListener('change', () => {
+    if (box.checked) chosen.add(box.value); else chosen.delete(box.value);
+    if (entries) showSizes();
+    updateButtons();
+  });
 updateButtons();
 loadRelease();

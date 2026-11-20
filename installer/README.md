@@ -7,11 +7,16 @@ Installs Black Ops II Zombies and Multiplayer from your own PC copy, for **Andro
 are read on your device and never uploaded.
 
 1. **Choose game folder**: the PC folder that holds `zone` and `sound` (the one with `t6zm.exe`).
-2. Pick the platform:
+2. Pick the game modes. The page shows which of Zombies, Multiplayer and Campaign your copy has,
+   and how big each one is. Only the checked modes are installed.
+   * Zombies and Multiplayer are checked when found.
+   * Campaign starts unchecked: BO2 Requiem doesn't play it yet, and it is about 9 GB.
+   * At least one of Zombies or Multiplayer is needed.
+3. Pick the platform:
    * **Android** (the default): the game files in a `BO2` folder.
    * **Nintendo Switch**: the game in `switch/t6game/`, with the latest release's `t6zm.nro`,
      `t6mp.nro` and `t6game.nro`.
-3. Pick the compression:
+4. Pick the compression:
 
    | Level | What changes | Retail game (23.6 GB) | Without the campaign (14.4 GB) |
    |---|---|---|---|
@@ -19,7 +24,7 @@ are read on your device and never uploaded.
    | **Medium** | textures at most 512 px; sound up to 12 kHz, 14 bits | 16.9 GB | 9.5 GB |
    | **Maximum** | textures at most 256 px; sound up to 8 kHz, 12 bits, mono | 10.7 GB | 5.5 GB |
 
-4. **Install to folder** (desktop Chrome or Edge: the SD card, your device's storage or a staging
+5. **Install to folder** (desktop Chrome or Edge: the SD card, your device's storage or a staging
    folder), or **Save as ZIP** (any current desktop browser).
    * Switch: extract the ZIP to the SD card's root, then open t6game from hbmenu in application
      mode.

@@ -24,6 +24,27 @@
         <button id="source" type="button">Choose game folder</button>
         <input id="source-files" class="visually-hidden" type="file" webkitdirectory multiple tabindex="-1">
       </div>
+      <fieldset class="step choices modes" id="modes" hidden>
+        <legend><h2>Game modes</h2></legend>
+        <label class="choice">
+          <input type="checkbox" name="mode" value="zm">
+          <span class="name">Zombies</span>
+          <span class="size" id="mode-size-zm">—</span>
+          <span class="what" id="mode-what-zm"></span>
+        </label>
+        <label class="choice">
+          <input type="checkbox" name="mode" value="mp">
+          <span class="name">Multiplayer</span>
+          <span class="size" id="mode-size-mp">—</span>
+          <span class="what" id="mode-what-mp"></span>
+        </label>
+        <label class="choice">
+          <input type="checkbox" name="mode" value="sp">
+          <span class="name">Campaign</span>
+          <span class="size" id="mode-size-sp">—</span>
+          <span class="what" id="mode-what-sp"></span>
+        </label>
+      </fieldset>
       <fieldset class="step choices targets" id="targets">
         <legend><h2>Platform</h2></legend>
         <label class="choice">
