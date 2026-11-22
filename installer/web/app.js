@@ -1,4 +1,4 @@
-// BO2 Requiem Compressor: installs Black Ops II for Android or the Nintendo Switch from a PC copy.
+// BO2 Requiem Compressor: installs Black Ops II for the Nintendo Switch, Switch 2 or Android from a PC copy.
 // Runs entirely in the browser (GitHub Pages or any static server). Game files are read in place;
 // image packs and sound banks are packed by t6pack (WebAssembly, web/generated) in Web Workers
 // (worker.js) through the origin's private storage, and every result is streamed to the chosen
@@ -10,10 +10,12 @@ import { LANGUAGES, language, setLanguage, t } from './i18n.mjs';
 const $ = id => document.getElementById(id);
 const MANIFEST = '.t6installer.json';
 const ZSTD_LEVEL = '15';   // within 0.3% of level 19 on image packs, twice as fast
-// Where the game goes inside the folder or the ZIP.
+// Where the game goes inside the folder or the ZIP; `zip` names the ZIP. The Switch ones get their
+// executables from the latest release (release.json, fetch_release.py).
 const TARGETS = {
-  android: { root: ['BO2'], label: 'Android' },
-  switch: { root: ['switch', 't6game'], label: 'Nintendo Switch' },
+  switch: { root: ['switch', 't6game'], label: 'Nintendo Switch', zip: 'Switch', nros: true },
+  switch2: { root: ['switch', 't6gameSW2'], label: 'Nintendo Switch 2', zip: 'Switch2', nros: true },
+  android: { root: ['BO2'], label: 'Android', zip: 'Android' },
 };
 // t6pack arguments per level and kind ($IN / $OUT are filled in by worker.js); null = copied.
 const LEVELS = {
@@ -73,7 +75,9 @@ let modes = null;        // per mode: { files, bytes, installed }
 const chosen = new Set();   // the modes to install
 let sourceHandle = null;
 let sourceName = '';
-let release = null;      // the Switch executables published with the site: { tag, name, files: [{ name, size }] }
+// The Switch executables published with the site: { tag, name, files: [{ name, size }] (Switch),
+// switch2: [{ name, size }] (release/switch2/) }.
+let release = null;
 let run = null;          // the running install
 
 if (canStreamDownload) navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -95,7 +99,7 @@ async function loadRelease() {
     const response = await fetch('./release/release.json', { cache: 'no-cache' });
     if (!response.ok) throw new Error(response.statusText);
     release = await response.json();
-    if (!release.files || !release.files.length) throw new Error('no executables');
+    if (!(release.files || []).length && !(release.switch2 || []).length) throw new Error('no executables');
   } catch {
     release = null;
   }
@@ -103,9 +107,27 @@ async function loadRelease() {
   updateButtons();
 }
 
+// A target's executables: [{ name, size, url }], empty when the release has none for it.
+function executables(tg) {
+  if (!release || !TARGETS[tg].nros) return [];
+  const [list, dir] = tg === 'switch2' ? [release.switch2, './release/switch2/'] : [release.files, './release/'];
+  return (list || []).map(f => ({ ...f, url: dir + encodeURIComponent(f.name) }));
+}
+const hasExecutables = tg => !TARGETS[tg].nros || executables(tg).length > 0;
+
 function showRelease() {
-  $('release-note').textContent = release ? t('release.ok', { name: release.name || release.tag }) : t('release.missing');
+  const name = release && (release.name || release.tag);
+  const found = Object.keys(TARGETS).filter(tg => TARGETS[tg].nros && hasExecutables(tg));
+  $('release-note').textContent = release ? t('release.ok', { targets: found.map(tg => TARGETS[tg].label).join(', '), name }) : t('release.missing');
   $('release-note').className = release ? '' : 'warn';
+  // Switch 2 stays visible but can't be chosen until a release has its executables.
+  const missing = !!release && !hasExecutables('switch2');
+  const radio = document.querySelector('input[name=target][value=switch2]');
+  radio.disabled = missing;
+  radio.closest('.choice').classList.toggle('unavailable', missing);
+  if (missing && radio.checked) document.querySelector('input[name=target][value=switch]').checked = true;
+  if (missing) $('switch2-what').textContent = t('platform.switch2.missing', { name });
+  else $('switch2-what').innerHTML = t('platform.switch2.what');
 }
 
 function kindOf(rel) {
@@ -221,7 +243,7 @@ function status(text) {
 }
 
 function updateButtons() {
-  const ready = !!entries && !run && (target() !== 'switch' || !!release) && playable();
+  const ready = !!entries && !run && hasExecutables(target()) && playable();
   $('install').disabled = !ready || !canPickFolders || !hasPrivateStorage;
   $('zip').disabled = !ready || !(canSaveFile || canStreamDownload) || !hasPrivateStorage;
   $('install').title = !canPickFolders ? t('needs.chrome') : '';
@@ -259,8 +281,8 @@ function summary() {
     $('summary').textContent = t('summary.idle');
     return;
   }
-  if (target() === 'switch' && !release) {
-    $('summary').textContent = t('summary.noswitch');
+  if (!hasExecutables(target())) {
+    $('summary').textContent = t('summary.noswitch', { target: TARGETS[target()].label });
     return;
   }
   if (!playable()) {
@@ -450,9 +472,9 @@ async function install(toZip) {
   const prefix = TARGETS[tg].root;
   let sink;
   try {
-    if (tg === 'switch' && !release) throw new Error(t('error.noswitch'));
+    if (!hasExecutables(tg)) throw new Error(t('error.noswitch', { target: TARGETS[tg].label }));
     if (toZip) {
-      const name = `BO2-Requiem-${tg === 'switch' ? 'Switch' : 'Android'}-${lv}.zip`;
+      const name = `BO2-Requiem-${TARGETS[tg].zip}-${lv}.zip`;
       const writable = canSaveFile
         ? await (await showSaveFilePicker({ id: 't6-zip', suggestedName: name, types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }] })).createWritable()
         : await serviceWorkerWritable(name);
@@ -513,18 +535,16 @@ async function install(toZip) {
     }
     jobs.push(job);
   }
-  if (tg === 'switch') {
-    // The release's executables: always written, so an install picks up a newer release.
-    for (const f of release.files) {
-      jobs.push({
-        rel: f.name, size: f.size, kind: 'copy', args: null, key: 'nro', progress: 0, sunk: 0, state: 'waiting',
-        getFile: async () => {
-          const response = await fetch('./release/' + encodeURIComponent(f.name), { cache: 'no-cache' });
-          if (!response.ok) throw new Error(t('error.nro', { name: f.name, status: response.status }));
-          return response.blob();
-        },
-      });
-    }
+  // The release's executables: always written, so an install picks up a newer release.
+  for (const f of executables(tg)) {
+    jobs.push({
+      rel: f.name, size: f.size, kind: 'copy', args: null, key: 'nro', progress: 0, sunk: 0, state: 'waiting',
+      getFile: async () => {
+        const response = await fetch(f.url, { cache: 'no-cache' });
+        if (!response.ok) throw new Error(t('error.nro', { name: f.name, status: response.status }));
+        return response.blob();
+      },
+    });
   }
   const total = jobs.reduce((a, j) => a + j.size, 0);
   const kept = jobs.filter(j => j.state === 'kept').length;
@@ -645,9 +665,8 @@ async function install(toZip) {
     $('detail').textContent = t('run.detail', { done: jobs.length, total: jobs.length, read: gb(r.read), written: gb(r.written),
       time: minutes(seconds) });
     const where = prefix.join('/') + '/';
-    status(t('done', { time: minutes(seconds), read: gb(r.read), written: gb(r.written) }) + (tg === 'switch'
-      ? t(toZip ? 'done.switch.zip' : 'done.switch.folder')
-      : t(toZip ? 'done.android.zip' : 'done.android.folder', { where })));
+    status(t('done', { time: minutes(seconds), read: gb(r.read), written: gb(r.written) }) +
+      t(`done.${tg}.${toZip ? 'zip' : 'folder'}`, { where }));
     note(t('note.done', { read: gb(r.read), written: gb(r.written), time: minutes(seconds) }));
   } catch (error) {
     failure = error;

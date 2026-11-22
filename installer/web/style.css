@@ -43,6 +43,7 @@ fieldset.choices legend { grid-column: 1 / -1; padding: 0; margin-bottom: .2rem;
 .choice .size { color: var(--accent); font-weight: 650; font-variant-numeric: tabular-nums; }
 .choice .what { color: var(--muted); font-size: .85rem; line-height: 1.4; }
 fieldset:disabled .choice { cursor: default; opacity: .7; }
+.choice.unavailable { cursor: not-allowed; opacity: .6; }
 .check { display: flex; gap: .6rem; align-items: flex-start; color: var(--muted); font-size: .92rem; cursor: pointer; }
 .check input { margin-top: .3rem; accent-color: var(--accent); }
 .warn { color: var(--accent); }
@@ -63,7 +64,6 @@ footer { display: flex; justify-content: space-between; gap: .5rem 1rem; flex-wr
 }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .optional { color: var(--muted); font-weight: 500; font-size: .8rem; margin-left: .4rem; text-transform: uppercase; letter-spacing: .06em; }
-@media (min-width: 641px) { fieldset.targets { grid-template-columns: repeat(2, 1fr); } }
 #release-note.warn { color: var(--accent); }
 fieldset[hidden], .choice[hidden] { display: none; }
 /* The language screen, before the setup */

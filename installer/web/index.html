@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BO2 Requiem Compressor</title>
-  <meta name="description" content="Install Black Ops II Zombies and Multiplayer for Android or the Nintendo Switch from your own PC copy, with optional compression. Runs in your browser; your files stay on your device.">
+  <meta name="description" content="Install Black Ops II Zombies and Multiplayer for the Nintendo Switch, Switch 2 or Android from your own PC copy, with optional compression. Runs in your browser; your files stay on your device.">
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./app.js"></script>
 </head>
@@ -73,15 +73,21 @@
       <fieldset class="step choices targets" id="targets">
         <legend><h2 data-i18n="platform.title">Platform</h2></legend>
         <label class="choice">
-          <input type="radio" name="target" value="android" checked>
-          <span class="name">Android</span>
-          <span class="what" data-i18n-html="platform.android.what">The game files in a <code>BO2</code> folder.</span>
-        </label>
-        <label class="choice">
-          <input type="radio" name="target" value="switch">
+          <input type="radio" name="target" value="switch" checked>
           <span class="name">Nintendo Switch</span>
           <span class="what" id="switch-what" data-i18n-html="platform.switch.what">The game in <code>switch/t6game/</code>, with the
             executables of the latest BO2 Requiem release.</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="target" value="switch2">
+          <span class="name">Nintendo Switch 2</span>
+          <span class="what" id="switch2-what" data-i18n-html="platform.switch2.what">The game in <code>switch/t6gameSW2/</code>, with the
+            Switch 2 executables of the latest BO2 Requiem release.</span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="target" value="android">
+          <span class="name">Android</span>
+          <span class="what" data-i18n-html="platform.android.what">The game files in a <code>BO2</code> folder.</span>
         </label>
       </fieldset>
       <fieldset class="step choices levels" id="levels">

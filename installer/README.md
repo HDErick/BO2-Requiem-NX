@@ -2,8 +2,8 @@
 
 **https://hderick.github.io/BO2-Requiem-NX/**
 
-Installs Black Ops II Zombies and Multiplayer from your own PC copy, for **Android** or the
-**Nintendo Switch**, with optional compression. It runs entirely in your browser: your game files
+Installs Black Ops II Zombies and Multiplayer from your own PC copy, for the **Nintendo Switch**,
+**Switch 2** or **Android**, with optional compression. It runs entirely in your browser: your game files
 are read on your device and never uploaded.
 
 0. **Choose a language**: English, Português (Brasil) or Español. The page shows everything in that
@@ -15,9 +15,11 @@ are read on your device and never uploaded.
    * Campaign starts unchecked: BO2 Requiem doesn't play it yet, and it is about 9 GB.
    * At least one of Zombies or Multiplayer is needed.
 3. Pick the platform:
-   * **Android** (the default): the game files in a `BO2` folder.
-   * **Nintendo Switch**: the game in `switch/t6game/`, with the latest release's `t6zm.nro`,
+   * **Nintendo Switch** (the default): the game in `switch/t6game/`, with the latest release's `t6zm.nro`,
      `t6mp.nro` and `t6game.nro`.
+   * **Nintendo Switch 2**: the game in `switch/t6gameSW2/`, with the latest release's Switch 2 `t6zm.nro`,
+     `t6mp.nro` and `t6gameSW2.nro`. It can be picked once a release has them.
+   * **Android**: the game files in a `BO2` folder.
 4. Pick the compression:
 
    | Level | What changes | Retail game (23.6 GB) | Without the campaign (14.4 GB) |
@@ -30,6 +32,7 @@ are read on your device and never uploaded.
    folder), or **Save as ZIP** (any current desktop browser).
    * Switch: extract the ZIP to the SD card's root, then open t6game from hbmenu in application
      mode.
+   * Switch 2: extract the ZIP to the SD card's root, then start t6gameSW2 from hbmenu.
    * Android: the ZIP holds the `BO2` folder.
 
 Installing again to the same folder continues a cancelled install, and keeps the files that are
@@ -52,6 +55,6 @@ and then the page offers Android only.
 * whenever a release is published or edited (so the page always carries the newest executables);
 * by hand.
 
-`installer/fetch_release.py` takes the `.nro` files from the latest release: its `.nro` assets,
-or those inside its `.zip` assets. The page itself is static; `web/generated/t6pack.wasm` (the
+`installer/fetch_release.py` takes the `.nro` files from the latest release's zips: `bo2requiem.zip`
+(`switch/t6game/*.nro`) and `bo2requiem-Switch2.zip` (`switch/t6gameSW2/*.nro`). The page itself is static; `web/generated/t6pack.wasm` (the
 packer) is built from the port's sources.
