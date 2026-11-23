@@ -3,6 +3,9 @@
 # page lives in installer/web. It runs on every push that changes the installer, whenever a release
 # is published or edited (so the page always offers the newest executables), and by hand.
 #
+# A release's run is on the release's tag, which the github-pages environment does not let deploy (only
+# main): that run only starts this workflow again on main (from-release), and that one deploys.
+#
 # The page is static: web/generated/t6pack.mjs and .wasm are committed (rebuilt with build_web.py
 # in the port's repository), so nothing is compiled here.
 name: Publish installer
@@ -22,13 +25,24 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
-  deploy:
+  from-release:
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Publish the installer from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run installer-pages.yml --repo "$GITHUB_REPOSITORY" --ref main
+
+  deploy:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
