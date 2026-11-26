@@ -5,6 +5,9 @@ Currently limited to Zombies and Multiplayer. Campaign needs to be fully decompi
 
 Goal of the project is to have crossplay online servers with most devices
 
+# Want to add our crossplay server to your project? #
+- Contact tonytrawl (from Black Ops 2 Unbound) on discord
+
 # Source Code release date:
 - Planned November 30th 2026, after the initial beta testing.
   
