@@ -1,0 +1,6 @@
+assets/
+build/
+launcher.nro
+launcher.elf
+launcher.nacp
+*.map
